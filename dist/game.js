@@ -164,12 +164,12 @@ function gameStep(state, dx, dy) {
     if (enemy.index === target) state.result = "A creature caught you.";
   }
 }
-function playGame(root, config, step, directions, draw3D) {
+function playGame(root, config, step, directions) {
   const context = root.querySelector("canvas").getContext("2d");
   const status = root.querySelector("#play-status");
   if (!context) { status.textContent = "This browser could not start the game canvas."; return () => {}; }
   const score = root.querySelector("#play-score");
-  let state, timer, deadline, disposed = false, turn = 0;
+  let state, timer, deadline, disposed = false;
   context.imageSmoothingEnabled = false;
   const cell = 40, images = {};
   for (const [id,url] of Object.entries(config.images)) {
@@ -182,20 +182,17 @@ function playGame(root, config, step, directions, draw3D) {
     if (!state || disposed) return;
     context.clearRect(0,0,640,400);
     const background = images[config.background];
-    if (config.threeD) draw3D(context,state,background,images,turn,config.wallHeight);
-    else {
-      if (background?.complete && background.naturalWidth) context.drawImage(background,0,0,640,400);
-      context.fillStyle = "rgba(19,11,39,.28)";
-      context.fillRect(0,0,640,400);
-      function sprite(actor) {
-        const image = images[actor.id];
-        const x = actor.index%config.width*cell, y = Math.floor(actor.index/config.width)*cell;
-        if (image?.complete && image.naturalWidth) context.drawImage(image,x,y,cell,cell);
-      }
-      Object.values(state.tiles).forEach(sprite);
-      state.enemies.forEach(sprite);
-      if (state.player) sprite(state.player);
+    if (background?.complete && background.naturalWidth) context.drawImage(background,0,0,640,400);
+    context.fillStyle = "rgba(19,11,39,.28)";
+    context.fillRect(0,0,640,400);
+    function sprite(actor) {
+      const image = images[actor.id];
+      const x = actor.index%config.width*cell, y = Math.floor(actor.index/config.width)*cell;
+      if (image?.complete && image.naturalWidth) context.drawImage(image,x,y,cell,cell);
     }
+    Object.values(state.tiles).forEach(sprite);
+    state.enemies.forEach(sprite);
+    if (state.player) sprite(state.player);
     score.textContent = (state.total-state.remaining)+" / "+state.total+" collected"+(config.time ? " · "+(deadline === undefined ? config.time : Math.max(0,Math.ceil((deadline-performance.now())/1000)))+"s" : "");
     status.textContent = state.result || "";
   }
@@ -223,11 +220,7 @@ function playGame(root, config, step, directions, draw3D) {
       },200);
     }
     if (deadline !== undefined && performance.now() >= deadline) state.result = "Time’s up.";
-    else {
-      let [x,z] = directions[key];
-      for (let index=0;index<turn;index++) [x,z] = [z,-x];
-      step(state,x,z);
-    }
+    else step(state,...directions[key]);
     if (state.result) clearInterval(timer);
     draw();
   }
@@ -241,7 +234,6 @@ function playGame(root, config, step, directions, draw3D) {
   root.addEventListener("keydown",onKey);
   root.querySelectorAll("[data-key]").forEach((button) => button.addEventListener("click",() => move(button.dataset.key)));
   root.querySelector("#restart").addEventListener("click",restart);
-  if (config.threeD) root.querySelector("#rotate-camera").addEventListener("click",() => { turn = (turn+1)%4; draw(); });
   restart();
   return () => {
     disposed = true;
@@ -260,15 +252,24 @@ function gameConfig(project, embedded = {}) {
   return {background,cells,time,images,roles,width:gameWidth,height:gameHeight,wallHeight:project.game.wallHeight || 1,threeD:project.type === "game3d"};
 }
 function gameMarkup(project) {
-  return '<div class="game-play"><header><h2>'+esc(project.name)+'</h2><strong id="play-score"></strong></header><canvas width="640" height="400" tabindex="0" aria-label="Game board"></canvas><div class="hud" id="play-status" role="status"></div><div class="controls" aria-label="Game controls"><button data-key="ArrowLeft">Left</button><button data-key="ArrowUp">Up</button><button data-key="ArrowDown">Down</button><button data-key="ArrowRight">Right</button><button id="restart">Restart</button>'+(project.type === "game3d" ? '<button id="rotate-camera">Rotate camera</button>' : '')+'</div><p>Move with the arrow keys, WASD, or the on-screen controls.</p></div>';
+  if (project.type === "game3d") {
+    return '<div class="game-play first-person"><header><h2>'+esc(project.name)+'</h2><strong id="play-score"></strong></header><div class="first-person-viewport"><canvas width="640" height="400" tabindex="0" aria-label="First-person 3D game"></canvas><span class="crosshair" aria-hidden="true"></span></div><div class="hud" id="play-status" role="status"></div><div class="controls" aria-label="Game controls">'+[["a","Strafe left"],["w","Forward"],["s","Back"],["d","Strafe right"],["ArrowLeft","Turn left"],["ArrowRight","Turn right"]].map(([key,label])=>'<button data-key="'+key+'">'+label+'</button>').join("")+'<button id="restart">Restart</button></div><p>Use WASD to walk. Drag on the scene to look around, or use the arrow keys.</p></div>';
+  }
+  return '<div class="game-play"><header><h2>'+esc(project.name)+'</h2><strong id="play-score"></strong></header><canvas width="640" height="400" tabindex="0" aria-label="Game board"></canvas><div class="hud" id="play-status" role="status"></div><div class="controls" aria-label="Game controls"><button data-key="ArrowLeft">Left</button><button data-key="ArrowUp">Up</button><button data-key="ArrowDown">Down</button><button data-key="ArrowRight">Right</button><button id="restart">Restart</button></div><p>Move with the arrow keys, WASD, or the on-screen controls.</p></div>';
 }
 function mountGame(root, project, focusBoard = false) {
   root.innerHTML = gameMarkup(project);
-  const dispose = playGame(root,gameConfig(project),gameStep,gameDirections,drawGame3D);
+  const config = gameConfig(project);
+  const dispose = config.threeD
+    ? playWorld3D(root,config,createWorld3D,stepWorld3D)
+    : playGame(root,config,gameStep,gameDirections);
   if (focusBoard) root.querySelector("canvas").focus({preventScroll:true});
   return dispose;
 }
 function gameHTML(project, embedded, css) {
   const config = JSON.stringify(gameConfig(project,embedded)).replaceAll("<","\\u003c");
-  return '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(project.name)+'</title><style>'+css+'</style><body style="margin:0;background:#161025">'+gameMarkup(project)+'<script>('+playGame.toString()+')(document.querySelector(".game-play"),'+config+',('+gameStep.toString()+'),'+JSON.stringify(gameDirections)+',('+drawGame3D.toString()+'));</script></body></html>';
+  const start = project.type === "game3d"
+    ? '('+playWorld3D.toString()+')(document.querySelector(".game-play"),'+config+',('+createWorld3D.toString()+'),('+stepWorld3D.toString()+'));'
+    : '('+playGame.toString()+')(document.querySelector(".game-play"),'+config+',('+gameStep.toString()+'),'+JSON.stringify(gameDirections)+');';
+  return '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(project.name)+'</title><style>'+css+'</style><body style="margin:0;background:#161025">'+gameMarkup(project)+'<script>'+start+'</script></body></html>';
 }

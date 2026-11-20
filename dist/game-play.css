@@ -7,3 +7,7 @@
 .game-play .controls{display:flex;gap:7px;flex-wrap:wrap;margin:9px 0}
 .game-play button{min-height:40px;border:1px solid #785cad;border-radius:7px;background:#33234f;color:#fff;padding:7px 12px;font:inherit;cursor:pointer}
 .game-play button:hover{background:#503475}
+
+.first-person-viewport{position:relative}.first-person canvas{width:100%;aspect-ratio:16/10;touch-action:none;cursor:grab}.first-person canvas:active{cursor:grabbing}
+.crosshair{position:absolute;inset:50% auto auto 50%;width:4px;height:4px;transform:translate(-50%,-50%);border-radius:50%;background:white;box-shadow:0 0 3px #000;pointer-events:none}
+.first-person button[data-key]{touch-action:none;user-select:none}
