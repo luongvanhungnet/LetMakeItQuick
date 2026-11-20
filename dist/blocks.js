@@ -64,7 +64,7 @@ function moveBlock(blocks, from, slot) {
   return true;
 }
 function blockURL(value, asset = false) {
-  if (asset && /^media\/(forest|interior|coffee)\.jpg$/.test(value)) return new URL(value, location.href).href;
+  if (asset && assetByPath.has(value)) return new URL(value, location.href).href;
   try {
     const url = new URL(value);
     return url.protocol === "https:" && !url.username && !url.password ? url.href : "";
@@ -129,7 +129,7 @@ const blockProjectCSS = '.lp-block{padding-top:11px;padding-bottom:11px}.lp-bloc
 
 function builder() {
   const shelf = Object.entries(blockGroups).map(([group, types]) => '<div class="tool-group"><h3>'+group+'</h3><div class="tool-grid">'+Object.entries(types).map(([key,[label,glyph]]) => '<button type="button" class="build-tool" draggable="true" data-tool="'+key+'"><span aria-hidden="true">'+glyph+'</span>'+label+'</button>').join("")+'</div></div>').join("");
-  return '<div class="builder"><aside class="panel block-shelf"><h2>Blocks</h2><p class="subtext">Drag a block or select it to add.</p>'+shelf+'</aside><section class="panel build-stage"><div class="stage-head"><div><h2>Page layout</h2><p class="subtext">Drag blocks to reorder them.</p></div><span class="tag" id="block-count"></span></div><label class="template-switch"><input id="show-template" type="checkbox" '+(!current.hideTemplate ? 'checked' : '')+'> Show template content</label><div id="block-stage"></div><div id="block-inspector"></div></section></div>';
+  return '<div class="builder"><aside class="panel block-shelf"><h2>Blocks</h2><p class="subtext">Drag a block or select it to add.</p><button class="secondary block-assets" data-action="project-assets">Browse asset library</button>'+shelf+'</aside><section class="panel build-stage"><div class="stage-head"><div><h2>Page layout</h2><p class="subtext">Drag blocks to reorder them.</p></div><span class="tag" id="block-count"></span></div><label class="template-switch"><input id="show-template" type="checkbox" '+(!current.hideTemplate ? 'checked' : '')+'> Show template content</label><div id="block-stage"></div><div id="block-inspector"></div></section></div>';
 }
 let selectedBlock = null;
 let draggedBlock = null;
