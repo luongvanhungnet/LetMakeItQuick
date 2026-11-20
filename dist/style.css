@@ -19,3 +19,6 @@
 .tag.game3d{background:#d8eee8;color:#235d50}
 .game-thumb:has(+.card-info .game3d) img:first-child{transform:perspective(220px) rotateY(-25deg) scale(1.2)}
 @media(max-width:760px){.editor-workspace{grid-template-columns:1fr}.live-panel{position:static}}
+.ai-result{margin-top:14px;padding:12px;border-radius:9px;border:1px solid #e4d9fa;background:#f9f5ff;overflow-wrap:anywhere}
+.ai-result h3{font:700 18px "Space Grotesk",sans-serif;margin:0 0 6px}.ai-result p,.ai-result li{font-size:14px;line-height:1.45}
+.ai-result ul{padding-left:20px}.ai-result button{margin-top:4px}#ai-form button:disabled{opacity:.6;cursor:wait}

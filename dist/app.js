@@ -95,7 +95,7 @@ function editor() {
   const isGame = isGameType(current.type);
   const tabs = [["blocks",isGame ? "Level editor" : "Build"],["settings",isGame ? "Game settings" : "Template content"]].map(([key,label]) =>
     '<button class="filter '+(key === editorMode ? "active" : "")+'" aria-pressed="'+(key === editorMode)+'" data-action="editor-mode" data-id="'+key+'">'+label+'</button>').join("");
-  view.innerHTML = '<div class="editor-bar"><div><button class="secondary" data-action="projects">My projects</button><span class="save-note" id="save-note">Saved on this device</span></div><div><button class="secondary" data-action="download">Download HTML</button><button class="primary" data-action="publish">Publish</button></div></div><div class="project-heading"><h1 class="page-title">'+esc(current.name || "Untitled project")+'</h1><span class="tag">'+typeLabel(current.type)+'</span></div><nav class="filters editor-tabs" aria-label="Editor views">'+tabs+'</nav><div class="editor-workspace"><div id="editor-body"></div>'+livePreviewMarkup(isGame)+'</div>';
+  view.innerHTML = '<div class="editor-bar"><div><button class="secondary" data-action="projects">My projects</button><span class="save-note" id="save-note">Saved on this device</span></div><div><button class="secondary" data-action="ai-edit">'+icon("spark")+' AI edit</button><button class="secondary" data-action="download">Download HTML</button><button class="primary" data-action="publish">Publish</button></div></div><div class="project-heading"><h1 class="page-title">'+esc(current.name || "Untitled project")+'</h1><span class="tag">'+typeLabel(current.type)+'</span></div><nav class="filters editor-tabs" aria-label="Editor views">'+tabs+'</nav><div class="editor-workspace"><div id="editor-body"></div>'+livePreviewMarkup(isGame)+'</div>';
   const body = $("#editor-body");
   if (editorMode === "blocks") {
     if (isGame) gameEditor();
@@ -295,7 +295,8 @@ async function download() {
 }
 const actions = {
   templates: () => go("templates"), projects: () => go("projects"), close: () => modal.close(),
-  new: () => openDialog("New project",'<p class="subtext">Choose a template or start with a blank project.</p><div class="dialog-actions"><button class="primary" data-action="browse">Browse templates</button><button class="secondary" data-action="blank" data-id="web">Blank website</button><button class="secondary" data-action="blank" data-id="app">Blank mobile app</button><button class="secondary" data-action="blank" data-id="game">Blank 2D game</button><button class="secondary" data-action="blank" data-id="game3d">Blank 3D game</button></div>'),
+  "ai-create": () => openAI(), "ai-edit": () => openAI(current),
+  new: () => openDialog("New project",'<p class="subtext">Choose a template or start with a blank project.</p><div class="dialog-actions"><button class="primary" data-action="ai-create">Create with AI</button><button class="secondary" data-action="browse">Browse templates</button><button class="secondary" data-action="blank" data-id="web">Blank website</button><button class="secondary" data-action="blank" data-id="app">Blank mobile app</button><button class="secondary" data-action="blank" data-id="game">Blank 2D game</button><button class="secondary" data-action="blank" data-id="game3d">Blank 3D game</button></div>'),
   browse: () => { modal.close(); filter = "all"; query = ""; go("templates"); },
   blank: (id) => setup(blank(id)), pick: (id) => setup([...templates,...gameTemplates,...game3DTemplates].find((t) => t.id === id)),
   filter: (id) => {
