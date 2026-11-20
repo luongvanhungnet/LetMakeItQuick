@@ -57,6 +57,7 @@ function projectList() {
     (projects.length ? '<div class="grid">'+projects.map((p) => '<button class="card project-card" data-action="open" data-id="'+esc(p.id)+'"><h3>'+esc(p.name)+'</h3><p class="subtext">'+(p.link ? "Published snapshot" : "Draft")+'</p><span class="tag '+p.type+'">'+typeLabel(p.type)+'</span></button>').join("")+'</div>' : '<div class="empty"><p>Your projects will appear here.</p><button class="primary" data-action="templates">Browse templates</button></div>');
 }
 function go(next) {
+  stopPlaytest();
   page = next;
   $("#crumb").textContent = next === "templates" ? "Templates" : next === "projects" ? "My projects" : "Project editor";
   document.querySelectorAll(".sidebar nav button").forEach((button) => {
@@ -87,7 +88,9 @@ function create(t, name) {
 }
 const fields = [["name","Project name",70],["title","Headline",100],["intro","Introduction",350],["button","Button label",50],["section","Section title",85],["details","Section content",900],["color","Accent color",7]];
 let editorMode = "blocks";
+let stopPlaytest = () => {}, stopPublishedGame = () => {};
 function editor() {
+  stopPlaytest();
   const isGame = current.type === "game";
   const tabs = [["blocks",isGame ? "Level editor" : "Build"],["settings",isGame ? "Game settings" : "Template content"],["preview",isGame ? "Playtest" : "Preview"]].map(([key,label]) =>
     '<button class="filter '+(key === editorMode ? "active" : "")+'" aria-pressed="'+(key === editorMode)+'" data-action="editor-mode" data-id="'+key+'">'+label+'</button>').join("");
@@ -108,13 +111,14 @@ function editor() {
       $(".project-heading h1").textContent = current.name || "Untitled project";
       saveEditor();
     });
+  } else if (isGame) {
+    stopPlaytest = mountGame(body,current,true);
   } else {
     body.innerHTML = '<div class="editor-bar"><h2>Preview</h2><div><button class="filter '+(!phone ? "active" : "")+'" aria-pressed="'+!phone+'" data-action="desktop">'+icon("web")+' Desktop</button><button class="filter '+(phone ? "active" : "")+'" aria-pressed="'+phone+'" data-action="mobile">'+icon("app")+' Mobile</button></div></div><div class="preview '+(phone ? "mobile" : "")+'"><iframe id="preview" title="Project preview" sandbox="allow-scripts"></iframe></div>';
     $("#preview").srcdoc = projectHTML(current);
   }
 }
 function projectHTML(p, imageOverride, assets) {
-  if (p.type === "game") return gameHTML(p,assets);
   const color = /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : "#643bed";
   const image = templateFor(p)?.image;
   const picture = imageOverride || (image ? new URL("media/"+image,location.href).href : "");
@@ -179,14 +183,16 @@ function readSnapshot(hash) {
   return p;
 }
 function route() {
+  stopPublishedGame();
   const publicPage = location.hash.startsWith("#view=");
   $("#studio").hidden = publicPage;
   const target = $("#published");
   target.hidden = !publicPage;
-  if (!publicPage) { document.title = "Launchpad Studio"; return; }
+  if (!publicPage) { target.replaceChildren(); document.title = "Launchpad Studio"; return; }
   try {
     const p = readSnapshot(location.hash);
     document.title = p.name || "Published project";
+    if (p.type === "game") { stopPublishedGame = mountGame(target,p,true); return; }
     if (p.type === "app" || p.blocks?.some((block) => block.type === "checklist")) {
       const frame = document.createElement("iframe");
       frame.className = "published-view";
@@ -225,7 +231,13 @@ async function download() {
     for (const id of [p.game.background,...Object.values(p.game.cells)]) paths.add(assetById.get(id).path);
   }
   const assets = {};
+  let gameStyles;
   try {
+    if (p.type === "game") {
+      const response = await fetch("game-play.css");
+      if (!response.ok) throw Error("Game styles missing");
+      gameStyles = await response.text();
+    }
     await Promise.all([...paths].map(async (path) => {
       const response = await fetch(path);
       if (!response.ok) throw Error("Image missing");
@@ -237,8 +249,9 @@ async function download() {
         reader.readAsDataURL(file);
       });
     }));
-  } catch { toast("The image couldn’t be embedded. Try again when connected."); return; }
-  const url = URL.createObjectURL(new Blob([projectHTML(p,assets["media/"+image],assets)], {type:"text/html"}));
+  } catch { toast("The project assets couldn’t be embedded. Try again when connected."); return; }
+  const html = p.type === "game" ? gameHTML(p,assets,gameStyles) : projectHTML(p,assets["media/"+image],assets);
+  const url = URL.createObjectURL(new Blob([html], {type:"text/html"}));
   const link = document.createElement("a");
   link.href = url;
   link.download = (p.name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"") || "project")+".html";

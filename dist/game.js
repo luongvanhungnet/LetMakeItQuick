@@ -158,20 +158,22 @@ function gameStep(state, dx, dy) {
     if (enemy.index === target) state.result = "A creature caught you.";
   }
 }
-function playGame(config, step, directions) {
-  const context = document.querySelector("canvas").getContext("2d");
+function playGame(root, config, step, directions) {
+  const context = root.querySelector("canvas").getContext("2d");
+  const status = root.querySelector("#play-status");
+  if (!context) { status.textContent = "This browser could not start the game canvas."; return () => {}; }
+  const score = root.querySelector("#play-score");
+  let state, timer, deadline, disposed = false;
   context.imageSmoothingEnabled = false;
   const cell = 40, images = {};
   for (const [id,url] of Object.entries(config.images)) {
     const image = new Image();
-    image.onload = () => draw();
+    image.onload = draw;
     image.src = url;
     images[id] = image;
   }
-  const status = document.querySelector("#play-status");
-  const score = document.querySelector("#play-score");
-  let state, timer, deadline;
   function draw() {
+    if (!state || disposed) return;
     context.clearRect(0,0,640,400);
     const background = images[config.background];
     if (background?.complete && background.naturalWidth) context.drawImage(background,0,0,640,400);
@@ -185,7 +187,7 @@ function playGame(config, step, directions) {
     Object.values(state.tiles).forEach(sprite);
     state.enemies.forEach(sprite);
     if (state.player) sprite(state.player);
-    score.textContent = (state.total-state.remaining)+" / "+state.total+" collected"+(config.time ? " · "+Math.max(0,Math.ceil((deadline-performance.now())/1000))+"s" : "");
+    score.textContent = (state.total-state.remaining)+" / "+state.total+" collected"+(config.time ? " · "+(deadline === undefined ? config.time : Math.max(0,Math.ceil((deadline-performance.now())/1000)))+"s" : "");
     status.textContent = state.result || "";
   }
   function restart() {
@@ -198,31 +200,42 @@ function playGame(config, step, directions) {
       else { state.tiles[index] = actor; if (actor.role === "gem") state.remaining++; }
     }
     state.total = state.remaining;
-    deadline = performance.now()+config.time*1000;
+    deadline = undefined;
     if (!state.player || !Object.values(state.tiles).some((actor) => actor.role === "exit")) state.result = "This level needs a player and a gate.";
-    if (config.time && !state.result) timer = setInterval(() => {
-      if (performance.now() >= deadline) { state.result = "Time’s up."; clearInterval(timer); }
-      draw();
-    },200);
     draw();
   }
   function move(key) {
-    if (!state.player || !Object.hasOwn(directions,key)) return;
-    step(state,...directions[key]);
+    if (disposed || state.result || !Object.hasOwn(directions,key)) return;
+    if (config.time && deadline === undefined) {
+      deadline = performance.now()+config.time*1000;
+      timer = setInterval(() => {
+        if (performance.now() >= deadline) { state.result = "Time’s up."; clearInterval(timer); }
+        draw();
+      },200);
+    }
+    if (deadline !== undefined && performance.now() >= deadline) state.result = "Time’s up.";
+    else step(state,...directions[key]);
     if (state.result) clearInterval(timer);
     draw();
   }
-  document.addEventListener("keydown",(event) => {
+  function onKey(event) {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
     const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
     if (!Object.hasOwn(directions,key)) return;
     event.preventDefault();
     move(key);
-  });
-  document.querySelectorAll("[data-key]").forEach((button) => button.addEventListener("click",() => move(button.dataset.key)));
-  document.querySelector("#restart").addEventListener("click",restart);
+  }
+  root.addEventListener("keydown",onKey);
+  root.querySelectorAll("[data-key]").forEach((button) => button.addEventListener("click",() => move(button.dataset.key)));
+  root.querySelector("#restart").addEventListener("click",restart);
   restart();
+  return () => {
+    disposed = true;
+    clearInterval(timer);
+    root.removeEventListener("keydown",onKey);
+  };
 }
-function gameHTML(project, embedded = {}) {
+function gameConfig(project, embedded = {}) {
   const {background,cells,time} = project.game;
   const images = Object.create(null), roles = Object.create(null);
   for (const id of new Set([background,...Object.values(cells)])) {
@@ -230,9 +243,18 @@ function gameHTML(project, embedded = {}) {
     images[id] = embedded[asset.path] || new URL(asset.path,location.href).href;
     roles[id] = asset.role;
   }
-  const config = JSON.stringify({background,cells,time,images,roles,width:gameWidth,height:gameHeight}).replaceAll("<","\\u003c");
-  const title = esc(project.name);
-  return '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+title+'</title><style>'+
-    'body{margin:0;background:#161025;color:#f4ecff;font:15px system-ui,sans-serif}main{max-width:900px;margin:auto;padding:14px}header{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px}h1{font-size:clamp(20px,4vw,34px);margin:0;overflow-wrap:anywhere}canvas{display:block;width:100%;height:auto;border:1px solid #6c528c;border-radius:10px;background:#281b45;image-rendering:pixelated;box-sizing:border-box}.hud{min-height:25px;padding:6px 0;color:#e3cef8}.controls{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}button{min-height:40px;border:1px solid #785cad;border-radius:7px;background:#33234f;color:#fff;padding:7px 12px;font:inherit;cursor:pointer}button:hover{background:#503475}</style>'+
-    '<main><header><h1>'+title+'</h1><strong id="play-score"></strong></header><canvas width="640" height="400" tabindex="0" aria-label="Game board"></canvas><div class="hud" id="play-status" role="status"></div><div class="controls" aria-label="Game controls"><button data-key="ArrowLeft">Left</button><button data-key="ArrowUp">Up</button><button data-key="ArrowDown">Down</button><button data-key="ArrowRight">Right</button><button id="restart">Restart</button></div><p>Move with the arrow keys, WASD, or the on-screen controls.</p></main><script>('+playGame.toString()+')('+config+',('+gameStep.toString()+'),'+JSON.stringify(gameDirections)+');</script></html>';
+  return {background,cells,time,images,roles,width:gameWidth,height:gameHeight};
+}
+function gameMarkup(project) {
+  return '<div class="game-play"><header><h2>'+esc(project.name)+'</h2><strong id="play-score"></strong></header><canvas width="640" height="400" tabindex="0" aria-label="Game board"></canvas><div class="hud" id="play-status" role="status"></div><div class="controls" aria-label="Game controls"><button data-key="ArrowLeft">Left</button><button data-key="ArrowUp">Up</button><button data-key="ArrowDown">Down</button><button data-key="ArrowRight">Right</button><button id="restart">Restart</button></div><p>Move with the arrow keys, WASD, or the on-screen controls.</p></div>';
+}
+function mountGame(root, project, focusBoard = false) {
+  root.innerHTML = gameMarkup(project);
+  const dispose = playGame(root,gameConfig(project),gameStep,gameDirections);
+  if (focusBoard) root.querySelector("canvas").focus({preventScroll:true});
+  return dispose;
+}
+function gameHTML(project, embedded, css) {
+  const config = JSON.stringify(gameConfig(project,embedded)).replaceAll("<","\\u003c");
+  return '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(project.name)+'</title><style>'+css+'</style><body style="margin:0;background:#161025">'+gameMarkup(project)+'<script>('+playGame.toString()+')(document.querySelector(".game-play"),'+config+',('+gameStep.toString()+'),'+JSON.stringify(gameDirections)+');</script></body></html>';
 }
