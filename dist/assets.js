@@ -66,16 +66,17 @@ const mediaLibrary = [
 const assetById = new Map(mediaLibrary.map((asset) => [asset.id,asset]));
 const assetByPath = new Map(mediaLibrary.map((asset) => [asset.path,asset]));
 
-function assetPicker(onSelect) {
-  const categories = [...new Set(mediaLibrary.map((asset) => asset.category))];
+function assetPicker(onSelect, includeVideo = !onSelect) {
+  const collection = includeVideo ? [...mediaLibrary,...videoClips] : mediaLibrary;
+  const categories = [...new Set(collection.map((asset) => asset.category))];
   openDialog("Asset library", '<div class="asset-filters"><label class="search">'+icon("search")+'<input type="search" id="asset-search" placeholder="Search assets…" aria-label="Search assets"></label><select id="asset-filter" aria-label="Asset category"><option value="">All categories</option>'+categories.map((category) => '<option>'+category+'</option>').join("")+'</select></div><div id="asset-results" class="asset-grid"></div>');
   modal.classList.add("asset-dialog");
   function render() {
     const search = $("#asset-search").value.trim().toLowerCase();
     const category = $("#asset-filter").value;
-    const matches = mediaLibrary.filter((asset) => (!category || asset.category === category) && (asset.name+" "+asset.category).toLowerCase().includes(search));
+    const matches = collection.filter((asset) => (!category || asset.category === category) && (asset.name+" "+asset.category).toLowerCase().includes(search));
     $("#asset-results").innerHTML = matches.map((asset) => {
-      const art = '<img src="'+asset.path+'" alt="" loading="lazy"><strong>'+asset.name+'</strong>';
+      const art = '<img src="'+(asset.poster || asset.path)+'" alt="" loading="lazy"><strong>'+asset.name+'</strong>';
       return onSelect ? '<button type="button" class="asset-card" data-asset="'+asset.id+'">'+art+'</button>' : '<a class="asset-card" href="'+asset.path+'" download aria-label="Download '+asset.name+'">'+art+'</a>';
     }).join("") || '<p class="empty">No assets match your search.</p>';
   }
@@ -83,7 +84,7 @@ function assetPicker(onSelect) {
   $("#asset-filter").addEventListener("change",render);
   $("#asset-results").addEventListener("click",(event) => {
     const card = event.target.closest("[data-asset]");
-    if (card && onSelect) { modal.close(); onSelect(assetById.get(card.dataset.asset)); }
+    if (card && onSelect) { modal.close(); onSelect(collection.find(asset => asset.id === card.dataset.asset)); }
   });
   render();
 }

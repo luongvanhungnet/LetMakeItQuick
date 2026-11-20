@@ -21,7 +21,7 @@ const templates = [
   {id:"daily",type:"app",name:"Daily Ritual",desc:"A simple checklist for building better habits.",category:"Productivity",title:"Small steps, every day.",intro:"Make a little time for the habits that matter.",section:"Today’s habits",details:"Drink a glass of water\nTake a 10-minute walk\nWrite one thing you’re grateful for",button:"See habits",color:"#a84e29"},
   {id:"pocket",type:"app",name:"Pocket Guide",desc:"A pocket-sized checklist for your next trip.",category:"Travel",title:"Ready to go?",intro:"Keep your travel essentials in one place.",section:"Packing list",details:"Passport and tickets\nCharger and adapter\nWater bottle\nTravel first aid kit",button:"Open packing list",color:"#17675f"}
 ];
-const typeLabel = (type) => type === "game3d" ? "3D game" : type === "game" ? "2D game" : type === "app" ? "Mobile app" : "Website";
+const typeLabel = (type) => type === "video" ? "Video" : type === "game3d" ? "3D game" : type === "game" ? "2D game" : type === "app" ? "Mobile app" : "Website";
 const blank = (type) => ({id:"blank",type,name:"Untitled project",title:"Welcome",intro:"Introduce your project.",section:type === "app" ? "Checklist" : "About",details:type === "app" ? "First task\nSecond task" : "Tell visitors what they can find here.",button:type === "app" ? "Open checklist" : "Learn more",color:"#643bed"});
 const templateFor = (item) => templates.find((template) => template.id === item.template && template.type === item.type);
 const storageKey = "launchpad-projects-v1";
@@ -39,16 +39,17 @@ function save() {
   catch { toast("Draft storage is unavailable. Download a copy to keep your work."); return false; }
 }
 function thumbnail(t) {
+  if (t.type === "video") return '<div class="thumb video-thumb" style="background-image:url('+t.poster+')"><span aria-hidden="true">▶</span></div>';
   if (isGameType(t.type)) return '<div class="thumb game-thumb" style="background-image:url('+assetById.get(t.background).path+')"><img src="'+assetById.get(t.hero).path+'" alt=""><img src="'+assetById.get(t.gem).path+'" alt=""></div>';
   if (t.type === "app") return '<div class="thumb '+t.id+'"><div class="phone" aria-hidden="true"><strong>'+esc(t.title)+'</strong><i></i><i></i><i></i><i></i></div></div>';
   return '<div class="thumb '+t.id+'"><div class="canvas" aria-hidden="true"><nav><span>'+t.name+'</span><span>'+t.category+'</span></nav><img class="canvas-photo" src="media/'+t.image+'" alt=""><div class="canvas-copy"><strong>'+esc(t.title)+'</strong><small>'+esc(t.button)+'</small></div></div></div>';
 }
 function renderCards() {
-  const list = [...templates,...gameTemplates,...game3DTemplates].filter((t) => (filter === "all" || filter === t.type) && [t.name,t.desc,t.category,typeLabel(t.type)].join(" ").toLowerCase().includes(query.trim().toLowerCase()));
+  const list = [...templates,...gameTemplates,...game3DTemplates,...videoTemplates].filter((t) => (filter === "all" || filter === t.type) && [t.name,t.desc,t.category,typeLabel(t.type)].join(" ").toLowerCase().includes(query.trim().toLowerCase()));
   $("#template-grid").innerHTML = list.length ? list.map((t) => '<button class="card" data-action="pick" data-id="'+t.id+'">'+thumbnail(t)+'<div class="card-info"><div class="card-title">'+t.name+'<span class="tag '+t.type+'">'+typeLabel(t.type)+'</span></div><p>'+t.desc+'</p></div></button>').join("") : '<p class="empty">No templates match your search.</p>';
 }
 function gallery() {
-  view.innerHTML = '<section class="hero"><div class="hero-copy"><div class="hero-kicker">'+icon("spark")+' TEMPLATE GALLERY</div><h1>Build something<br><span>worth sharing.</span></h1><p>Start with a template, make it yours, and share a website, mobile app, or 2D or 3D game.</p></div><div class="hero-art" aria-hidden="true"><div class="orbit"></div><div class="mock-browser"><div class="mock-top"><i></i><i></i><i></i></div><div class="mock-content"><div><i></i><i></i><i></i></div><div class="mock-picture"></div></div></div><div class="mock-phone"><i></i><i></i><i></i><i></i></div><span class="art-star star-one">✦</span><span class="art-star star-two">✧</span></div></section><section aria-labelledby="browse"><div class="section-head"><div><h2 id="browse">Explore templates</h2><p>Pick a starting point for your next project.</p></div><label class="search">'+icon("search")+'<input id="search" type="search" aria-label="Search templates" placeholder="Search templates…" value="'+esc(query)+'"></label></div><div class="filters" aria-label="Template type">'+[["all","grid","All templates"],["web","web","Websites"],["app","app","Mobile apps"],["game","grid","2D games"],["game3d","layers","3D games"]].map(([key,glyph,label]) => '<button class="filter '+(filter === key ? "active" : "")+'" aria-pressed="'+(filter === key)+'" data-action="filter" data-id="'+key+'">'+icon(glyph)+label+'</button>').join("")+'</div><div class="grid" id="template-grid"></div></section>';
+  view.innerHTML = '<section class="hero"><div class="hero-copy"><div class="hero-kicker">'+icon("spark")+' TEMPLATE GALLERY</div><h1>Build something<br><span>worth sharing.</span></h1><p>Start with a template, make it yours, and share a website, mobile app, game, or video.</p></div><div class="hero-art" aria-hidden="true"><div class="orbit"></div><div class="mock-browser"><div class="mock-top"><i></i><i></i><i></i></div><div class="mock-content"><div><i></i><i></i><i></i></div><div class="mock-picture"></div></div></div><div class="mock-phone"><i></i><i></i><i></i><i></i></div><span class="art-star star-one">✦</span><span class="art-star star-two">✧</span></div></section><section aria-labelledby="browse"><div class="section-head"><div><h2 id="browse">Explore templates</h2><p>Pick a starting point for your next project.</p></div><label class="search">'+icon("search")+'<input id="search" type="search" aria-label="Search templates" placeholder="Search templates…" value="'+esc(query)+'"></label></div><div class="filters" aria-label="Template type">'+[["all","grid","All templates"],["web","web","Websites"],["app","app","Mobile apps"],["game","grid","2D games"],["game3d","layers","3D games"],["video","web","Videos"]].map(([key,glyph,label]) => '<button class="filter '+(filter === key ? "active" : "")+'" aria-pressed="'+(filter === key)+'" data-action="filter" data-id="'+key+'">'+icon(glyph)+label+'</button>').join("")+'</div><div class="grid" id="template-grid"></div></section>';
   $("#search").addEventListener("input", (event) => { query = event.target.value; renderCards(); });
   renderCards();
 }
@@ -58,6 +59,8 @@ function projectList() {
 }
 function go(next) {
   stopPlaytest();
+  liveVideo?.dispose();
+  liveVideo = null;
   clearTimeout(previewUpdate);
   page = next;
   $("#crumb").textContent = next === "templates" ? "Templates" : next === "projects" ? "My projects" : "Project editor";
@@ -78,6 +81,7 @@ function openDialog(title, content) {
 function create(t, name) {
   const defaults = {...blank(t.type),...t};
   current = {id:crypto.randomUUID(),template:t.id,type:t.type,name:name || t.name,title:defaults.title,intro:defaults.intro,section:defaults.section,details:defaults.details,button:defaults.button,color:defaults.color};
+  if (t.type === "video") { current.video = setupVideo(t); selectedScene = 0; }
   if (isGameType(t.type)) { current.game = setupGame(t); gameTool = t.hero || "lilac-explorer"; }
   projects.unshift(current);
   save();
@@ -90,14 +94,18 @@ function create(t, name) {
 const fields = [["name","Project name",70],["title","Headline",100],["intro","Introduction",350],["button","Button label",50],["section","Section title",85],["details","Section content",900],["color","Accent color",7]];
 let editorMode = "blocks";
 let stopPlaytest = () => {}, stopPublishedGame = () => {};
+let liveVideo = null;
 function editor() {
   stopPlaytest();
-  const isGame = isGameType(current.type);
+  const isGame = isGameType(current.type), isVideo = current.type === "video";
+  liveVideo?.dispose();
+  liveVideo = null;
   const tabs = [["blocks",isGame ? "Level editor" : "Build"],["settings",isGame ? "Game settings" : "Template content"]].map(([key,label]) =>
     '<button class="filter '+(key === editorMode ? "active" : "")+'" aria-pressed="'+(key === editorMode)+'" data-action="editor-mode" data-id="'+key+'">'+label+'</button>').join("");
-  view.innerHTML = '<div class="editor-bar"><div><button class="secondary" data-action="projects">My projects</button><span class="save-note" id="save-note">Saved on this device</span></div><div><button class="secondary" data-action="ai-edit">'+icon("spark")+' AI edit</button><button class="secondary" data-action="download">Download HTML</button><button class="primary" data-action="publish">Publish</button></div></div><div class="project-heading"><h1 class="page-title">'+esc(current.name || "Untitled project")+'</h1><span class="tag">'+typeLabel(current.type)+'</span></div><nav class="filters editor-tabs" aria-label="Editor views">'+tabs+'</nav><div class="editor-workspace"><div id="editor-body"></div>'+livePreviewMarkup(isGame)+'</div>';
+  view.innerHTML = '<div class="editor-bar"><div><button class="secondary" data-action="projects">My projects</button><span class="save-note" id="save-note">Saved on this device</span></div><div>'+(isVideo ? '<button class="secondary" data-action="export-video">Export video</button>' : '<button class="secondary" data-action="ai-edit">'+icon("spark")+' AI edit</button><button class="secondary" data-action="download">Download HTML</button>')+'<button class="primary" data-action="publish">Publish</button></div></div><div class="project-heading"><h1 class="page-title">'+esc(current.name || "Untitled project")+'</h1><span class="tag">'+typeLabel(current.type)+'</span></div>'+(isVideo ? '' : '<nav class="filters editor-tabs" aria-label="Editor views">'+tabs+'</nav>')+'<div class="editor-workspace"><div id="editor-body"></div>'+livePreviewMarkup(isGame,isVideo)+'</div>';
   const body = $("#editor-body");
-  if (editorMode === "blocks") {
+  if (isVideo) videoEditor();
+  else if (editorMode === "blocks") {
     if (isGame) gameEditor();
     else { body.innerHTML = builder(); handleBuilder(); }
   } else if (editorMode === "settings") {
@@ -116,15 +124,21 @@ function editor() {
   refreshPreview();
 }
 let previewUpdate;
-function livePreviewMarkup(isGame) {
-  const controls = isGame
+function livePreviewMarkup(isGame,isVideo) {
+  const controls = isVideo ? "" : isGame
     ? '<button class="filter" data-action="focus-game">Playtest</button>'
     : '<button class="filter '+(!phone ? "active" : "")+'" aria-pressed="'+!phone+'" data-action="desktop">'+icon("web")+' Desktop</button><button class="filter '+(phone ? "active" : "")+'" aria-pressed="'+phone+'" data-action="mobile">'+icon("app")+' Mobile</button>';
   return '<aside class="live-panel" aria-label="Live preview"><div class="live-header"><h2><span aria-hidden="true"></span> Live preview</h2><div>'+controls+'</div></div>'+
-    (isGame ? '<div id="live-game"></div>' : '<div id="live-viewport" class="preview '+(phone ? "mobile" : "")+'"><iframe id="preview" title="Live project preview" sandbox="allow-scripts"></iframe></div>')+'</aside>';
+    (isVideo ? '<div id="live-video"></div>' : isGame ? '<div id="live-game"></div>' : '<div id="live-viewport" class="preview '+(phone ? "mobile" : "")+'"><iframe id="preview" title="Live project preview" sandbox="allow-scripts"></iframe></div>')+'</aside>';
 }
 function refreshPreview() {
   clearTimeout(previewUpdate);
+  const video = $("#live-video");
+  if (video) {
+    liveVideo ??= mountVideo(video,current.video);
+    liveVideo.update(current.video,selectedScene);
+    return;
+  }
   const game = $("#live-game");
   if (game) {
     stopPlaytest();
@@ -136,7 +150,7 @@ function refreshPreview() {
 }
 function schedulePreview() {
   clearTimeout(previewUpdate);
-  if (isGameType(current.type)) refreshPreview();
+  if (isGameType(current.type) || current.type === "video") refreshPreview();
   else previewUpdate = setTimeout(refreshPreview,100);
 }
 function focusGame() {
@@ -198,6 +212,7 @@ function snapshotLink(p) {
   const snapshot = {template:p.template,type:p.type};
   for (const [key] of fields) snapshot[key] = p[key];
   if (isGameType(p.type)) snapshot.game = p.game;
+  if (p.type === "video") snapshot.video = p.video;
   if (p.blocks?.length) snapshot.blocks = p.blocks;
   if (p.hideTemplate) snapshot.hideTemplate = true;
   const bytes = new TextEncoder().encode(JSON.stringify(snapshot));
@@ -211,7 +226,8 @@ function readSnapshot(hash) {
   if (code.length > 200000 || !/^[\w-]+$/.test(code)) throw Error("Invalid snapshot");
   const bytes = Uint8Array.from(atob(code.replaceAll("-","+").replaceAll("_","/")), (char) => char.charCodeAt(0));
   const p = JSON.parse(new TextDecoder().decode(bytes));
-  if (!p || !["web","app","game","game3d"].includes(p.type) || fields.some(([key,,max]) => typeof p[key] !== "string" || p[key].length > max)) throw Error("Invalid snapshot");
+  if (!p || !["web","app","game","game3d","video"].includes(p.type) || fields.some(([key,,max]) => typeof p[key] !== "string" || p[key].length > max)) throw Error("Invalid snapshot");
+  if (p.type === "video" && !validVideo(p.video)) throw Error("Invalid video");
   if (isGameType(p.type) && !validGame(p.game)) throw Error("Invalid game");
   if (p.blocks !== undefined && !validBlocks(p.blocks)) throw Error("Invalid blocks");
   p.hideTemplate = p.hideTemplate === true;
@@ -227,6 +243,12 @@ function route() {
   try {
     const p = readSnapshot(location.hash);
     document.title = p.name || "Published project";
+    if (p.type === "video") {
+      target.innerHTML = '<section class="published-video"><h1>'+esc(document.title)+'</h1><div></div></section>';
+      const player = mountVideo(target.querySelector("div"),p.video);
+      stopPublishedGame = () => player.dispose();
+      return;
+    }
     if (isGameType(p.type)) { stopPublishedGame = mountGame(target,p,true); return; }
     if (p.type === "app" || p.blocks?.some((block) => block.type === "checklist")) {
       const frame = document.createElement("iframe");
@@ -296,19 +318,19 @@ async function download() {
 const actions = {
   templates: () => go("templates"), projects: () => go("projects"), close: () => modal.close(),
   "ai-create": () => openAI(), "ai-edit": () => openAI(current),
-  new: () => openDialog("New project",'<p class="subtext">Choose a template or start with a blank project.</p><div class="dialog-actions"><button class="primary" data-action="ai-create">Create with AI</button><button class="secondary" data-action="browse">Browse templates</button><button class="secondary" data-action="blank" data-id="web">Blank website</button><button class="secondary" data-action="blank" data-id="app">Blank mobile app</button><button class="secondary" data-action="blank" data-id="game">Blank 2D game</button><button class="secondary" data-action="blank" data-id="game3d">Blank 3D game</button></div>'),
+  new: () => openDialog("New project",'<p class="subtext">Choose a template or start with a blank project.</p><div class="dialog-actions"><button class="primary" data-action="ai-create">Create with AI</button><button class="secondary" data-action="browse">Browse templates</button><button class="secondary" data-action="blank" data-id="web">Blank website</button><button class="secondary" data-action="blank" data-id="app">Blank mobile app</button><button class="secondary" data-action="blank" data-id="game">Blank 2D game</button><button class="secondary" data-action="blank" data-id="game3d">Blank 3D game</button><button class="secondary" data-action="blank" data-id="video">Blank video</button></div>'),
   browse: () => { modal.close(); filter = "all"; query = ""; go("templates"); },
-  blank: (id) => setup(blank(id)), pick: (id) => setup([...templates,...gameTemplates,...game3DTemplates].find((t) => t.id === id)),
+  blank: (id) => setup(blank(id)), pick: (id) => setup([...templates,...gameTemplates,...game3DTemplates,...videoTemplates].find((t) => t.id === id)),
   filter: (id) => {
     filter = id;
     document.querySelectorAll(".filter").forEach((button) => { const active = button.dataset.id === id; button.classList.toggle("active",active); button.setAttribute("aria-pressed",active); });
     renderCards();
   },
-  open: (id) => { current = projects.find((p) => p.id === id); phone = current.type === "app"; editorMode = "blocks"; selectedBlock = null; gameTool = "lilac-explorer"; go("editor"); },
+  open: (id) => { current = projects.find((p) => p.id === id); phone = current.type === "app"; editorMode = "blocks"; selectedBlock = null; selectedScene = 0; gameTool = "lilac-explorer"; go("editor"); },
   "editor-mode": (mode) => { editorMode = mode; editor(); },
   desktop: () => setPreviewDevice(false), mobile: () => setPreviewDevice(true),
   "focus-game": focusGame,
-  publish, download,
+  publish, download, "export-video": exportVideo,
   copy: async () => {
     const input = $("#share-link");
     input.select();

@@ -56,8 +56,25 @@ export default {
     const entry = Object.hasOwn(siteAssets,path) ? siteAssets[path] : null;
     if (!entry) return new Response("Page not found",{status:404});
     const [contentType,content,binary] = entry;
-    return new Response(request.method === "HEAD" ? null : binary ? Uint8Array.from(atob(content),char=>char.charCodeAt(0)) : content,{
-      headers:{"Content-Type":contentType,"X-Content-Type-Options":"nosniff","Cache-Control":binary ? "private, max-age=3600" : "no-cache"}
-    });
+    const headers = {"Content-Type":contentType,"X-Content-Type-Options":"nosniff","Cache-Control":binary ? "private, max-age=3600" : "no-cache"};
+    const body = binary ? Uint8Array.from(atob(content),char=>char.charCodeAt(0)) : content;
+    if (contentType === "video/mp4") {
+      const size = body.byteLength;
+      headers["Accept-Ranges"] = "bytes";
+      const range = request.headers.get("Range");
+      if (range && request.method === "GET") {
+        const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+        const start = match?.[1] ? Number(match[1]) : Math.max(0,size-Number(match?.[2] || 0));
+        const end = match?.[1] && match[2] ? Math.min(size-1,Number(match[2])) : size-1;
+        if (!match || !Number.isSafeInteger(start) || start > end) {
+          return new Response(null,{status:416,headers:{...headers,"Content-Range":"bytes */"+size}});
+        }
+        return new Response(body.slice(start,end+1),{status:206,headers:{
+          ...headers,"Content-Length":String(end-start+1),"Content-Range":"bytes "+start+"-"+end+"/"+size
+        }});
+      }
+      headers["Content-Length"] = String(size);
+    }
+    return new Response(request.method === "HEAD" ? null : body,{headers});
   }
 };

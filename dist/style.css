@@ -22,3 +22,11 @@
 .ai-result{margin-top:14px;padding:12px;border-radius:9px;border:1px solid #e4d9fa;background:#f9f5ff;overflow-wrap:anywhere}
 .ai-result h3{font:700 18px "Space Grotesk",sans-serif;margin:0 0 6px}.ai-result p,.ai-result li{font-size:14px;line-height:1.45}
 .ai-result ul{padding-left:20px}.ai-result button{margin-top:4px}#ai-form button:disabled{opacity:.6;cursor:wait}
+.video-thumb{background-size:cover;background-position:center}.video-thumb span{display:grid;place-items:center;width:42px;height:42px;border-radius:50%;background:#21172bd9;color:white}.tag.video{background:#f8dff1;color:#843864}
+.video-editor h2,.video-editor h3{font:700 20px "Space Grotesk",sans-serif}.video-scenes{display:grid;gap:7px;max-height:250px;overflow:auto;margin:12px 0}
+.scene-card{display:flex;align-items:center;gap:9px;padding:5px;border:1px solid var(--line);border-radius:8px;background:#faf8ff;text-align:left;min-width:0;cursor:grab}
+.scene-card[aria-pressed=true]{border-color:#af95e5;background:#f1eaff}.scene-card>span:last-child{min-width:0}.scene-card strong,.scene-card small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.scene-card small{color:var(--muted)}
+.scene-swatch{display:block;flex:none;width:59px;height:34px;overflow:hidden;border-radius:5px}.scene-swatch img{width:100%;height:100%;object-fit:cover}
+.scene-inspector{border-top:1px solid var(--line);padding-top:13px}.video-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));column-gap:8px}.video-fields .field{margin:5px 0}
+.video-transport{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0}.video-transport input{flex:1;min-width:70px;accent-color:var(--purple)}.video-transport output{font-size:13px;color:var(--muted);white-space:nowrap}
+.video-player canvas{display:block;width:100%;height:auto;max-height:68dvh;object-fit:contain;background:#160f28;border-radius:8px}.published-video{max-width:1050px;margin:auto;padding:20px}.published-video h1{margin-bottom:10px}.published-video canvas{max-height:79dvh}#video-export-progress{width:100%;margin-top:12px;accent-color:var(--purple)}
