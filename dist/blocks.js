@@ -136,6 +136,7 @@ let draggedBlock = null;
 
 function saveEditor() {
   $("#save-note").textContent = save() ? "Saved on this device" : "Draft could not be saved";
+  schedulePreview();
 }
 function renderBlockStage() {
   const blocks = current.blocks || [];

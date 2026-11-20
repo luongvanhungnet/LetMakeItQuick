@@ -11,12 +11,13 @@ function setupGame(t) {
   const put = (asset,x,y) => { if (asset) cells[x+y*gameWidth] = asset; };
   put(t.hero || "lilac-explorer",1,1);
   put(t.exit || "basalt-gate",14,8);
-  if (t.id !== "blank") {
+  const layout = t.layout || t.id;
+  if (layout !== "blank") {
     for (let x=3;x<13;x++) {
-      if (x !== (t.id === "reef" ? 5 : 9) && t.id !== "orbit") put(t.wall,x,3);
-      if (x !== (t.id === "reef" ? 11 : 6)) put(t.wall,x,6);
+      if (x !== (layout === "reef" ? 5 : 9) && layout !== "orbit") put(t.wall,x,3);
+      if (x !== (layout === "reef" ? 11 : 6)) put(t.wall,x,6);
     }
-    if (t.id === "orbit") {
+    if (layout === "orbit") {
       for (const x of [4,11]) {
         for (const y of [2,3,4]) put(t.wall,x,y);
       }
@@ -30,6 +31,7 @@ function setupGame(t) {
 function validGame(game) {
   return !!game && assetById.get(game.background)?.role === "background" &&
     Number.isInteger(game.time) && game.time >= 0 && game.time <= 600 &&
+    (game.wallHeight === undefined || [1,2,3].includes(game.wallHeight)) &&
     !!game.cells && typeof game.cells === "object" && !Array.isArray(game.cells) &&
     Object.entries(game.cells).every(([index,id]) => /^(0|[1-9]\d{0,2})$/.test(index) &&
       Number(index) < gameWidth*gameHeight && assetById.has(id) && assetById.get(id).role !== "background");
@@ -40,7 +42,11 @@ function gameEditor() {
   const game = current.game;
   const background = assetById.get(game.background);
   const palette = mediaLibrary.filter((asset) => asset.role !== "background");
-  $("#editor-body").innerHTML = '<div class="game-builder"><section class="panel game-palette"><h2>Scene assets</h2><p class="subtext">Drag an asset onto the grid or select it and pick a tile.</p><div class="game-options"><label class="field">Background<select id="game-background">'+mediaLibrary.filter((asset) => asset.role === "background").map((asset) => '<option value="'+asset.id+'" '+(asset.id === background.id ? "selected" : "")+'>'+asset.name+'</option>').join("")+'</select></label><button class="filter" id="game-erase" aria-pressed="false">Eraser</button></div><label class="search">'+icon("search")+'<input id="sprite-search" placeholder="Search scene assets…" type="search" aria-label="Search scene assets"></label><div class="sprite-library" id="sprite-library"></div></section><section class="panel game-stage"><div class="stage-head"><div><h2>Level layout</h2><p class="subtext" id="game-status"></p></div><button class="secondary" data-action="editor-mode" data-id="preview">Playtest</button></div><div class="game-grid" id="game-grid" aria-label="Level grid"></div><p class="subtext">Players collect every item, avoid traps and creatures, then reach a gate.</p><label class="field time-field">Time limit in seconds (0 for no limit)<input id="game-time" type="number" min="0" max="600" value="'+game.time+'"></label></section></div>';
+  $("#editor-body").innerHTML = '<div class="game-builder"><section class="panel game-palette"><h2>Scene assets</h2><p class="subtext">Drag an asset onto the grid or select it and pick a tile.</p><div class="game-options"><label class="field">Background<select id="game-background">'+mediaLibrary.filter((asset) => asset.role === "background").map((asset) => '<option value="'+asset.id+'" '+(asset.id === background.id ? "selected" : "")+'>'+asset.name+'</option>').join("")+'</select></label><button class="filter" id="game-erase" aria-pressed="false">Eraser</button></div><label class="search">'+icon("search")+'<input id="sprite-search" placeholder="Search scene assets…" type="search" aria-label="Search scene assets"></label><div class="sprite-library" id="sprite-library"></div></section><section class="panel game-stage"><div class="stage-head"><div><h2>Level layout</h2><p class="subtext" id="game-status"></p></div><button class="secondary" data-action="focus-game">Playtest</button></div><div class="game-grid" id="game-grid" aria-label="Level grid"></div><p class="subtext">Players collect every item, avoid traps and creatures, then reach a gate.</p><label class="field time-field">Time limit in seconds (0 for no limit)<input id="game-time" type="number" min="0" max="600" value="'+game.time+'"></label></section></div>';
+  if (current.type === "game3d") {
+    $("#game-time").parentElement.insertAdjacentHTML("afterend",'<label class="field time-field">Wall height<select id="wall-height">'+[1,2,3].map((height) => '<option '+(height === (game.wallHeight || 1) ? "selected" : "")+' value="'+height+'">'+["Low","Medium","Tall"][height-1]+'</option>').join("")+'</select></label>');
+    $("#wall-height").addEventListener("change",(event) => { game.wallHeight = Number(event.target.value); saveEditor(); });
+  }
   const grid = $("#game-grid");
   grid.style.backgroundImage = 'url("'+background.path+'")';
   const erase = $("#game-erase");
@@ -131,11 +137,11 @@ function gameEditor() {
     grid.style.backgroundImage = 'url("'+assetById.get(game.background).path+'")';
     saveEditor();
   });
-  $("#game-time").addEventListener("change",(event) => {
+  $("#game-time").addEventListener("input",(event) => {
     game.time = blockNumber(event.target.value,0,600);
-    event.target.value = game.time;
     saveEditor();
   });
+  $("#game-time").addEventListener("change",(event) => { event.target.value = game.time; });
 }
 
 const gameDirections = {ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0],w:[0,-1],s:[0,1],a:[-1,0],d:[1,0]};
@@ -158,12 +164,12 @@ function gameStep(state, dx, dy) {
     if (enemy.index === target) state.result = "A creature caught you.";
   }
 }
-function playGame(root, config, step, directions) {
+function playGame(root, config, step, directions, draw3D) {
   const context = root.querySelector("canvas").getContext("2d");
   const status = root.querySelector("#play-status");
   if (!context) { status.textContent = "This browser could not start the game canvas."; return () => {}; }
   const score = root.querySelector("#play-score");
-  let state, timer, deadline, disposed = false;
+  let state, timer, deadline, disposed = false, turn = 0;
   context.imageSmoothingEnabled = false;
   const cell = 40, images = {};
   for (const [id,url] of Object.entries(config.images)) {
@@ -176,17 +182,20 @@ function playGame(root, config, step, directions) {
     if (!state || disposed) return;
     context.clearRect(0,0,640,400);
     const background = images[config.background];
-    if (background?.complete && background.naturalWidth) context.drawImage(background,0,0,640,400);
-    context.fillStyle = "rgba(19,11,39,.28)";
-    context.fillRect(0,0,640,400);
-    function sprite(actor) {
-      const image = images[actor.id];
-      const x = actor.index%config.width*cell, y = Math.floor(actor.index/config.width)*cell;
-      if (image?.complete && image.naturalWidth) context.drawImage(image,x,y,cell,cell);
+    if (config.threeD) draw3D(context,state,background,images,turn,config.wallHeight);
+    else {
+      if (background?.complete && background.naturalWidth) context.drawImage(background,0,0,640,400);
+      context.fillStyle = "rgba(19,11,39,.28)";
+      context.fillRect(0,0,640,400);
+      function sprite(actor) {
+        const image = images[actor.id];
+        const x = actor.index%config.width*cell, y = Math.floor(actor.index/config.width)*cell;
+        if (image?.complete && image.naturalWidth) context.drawImage(image,x,y,cell,cell);
+      }
+      Object.values(state.tiles).forEach(sprite);
+      state.enemies.forEach(sprite);
+      if (state.player) sprite(state.player);
     }
-    Object.values(state.tiles).forEach(sprite);
-    state.enemies.forEach(sprite);
-    if (state.player) sprite(state.player);
     score.textContent = (state.total-state.remaining)+" / "+state.total+" collected"+(config.time ? " · "+(deadline === undefined ? config.time : Math.max(0,Math.ceil((deadline-performance.now())/1000)))+"s" : "");
     status.textContent = state.result || "";
   }
@@ -214,7 +223,11 @@ function playGame(root, config, step, directions) {
       },200);
     }
     if (deadline !== undefined && performance.now() >= deadline) state.result = "Time’s up.";
-    else step(state,...directions[key]);
+    else {
+      let [x,z] = directions[key];
+      for (let index=0;index<turn;index++) [x,z] = [z,-x];
+      step(state,x,z);
+    }
     if (state.result) clearInterval(timer);
     draw();
   }
@@ -228,6 +241,7 @@ function playGame(root, config, step, directions) {
   root.addEventListener("keydown",onKey);
   root.querySelectorAll("[data-key]").forEach((button) => button.addEventListener("click",() => move(button.dataset.key)));
   root.querySelector("#restart").addEventListener("click",restart);
+  if (config.threeD) root.querySelector("#rotate-camera").addEventListener("click",() => { turn = (turn+1)%4; draw(); });
   restart();
   return () => {
     disposed = true;
@@ -243,18 +257,18 @@ function gameConfig(project, embedded = {}) {
     images[id] = embedded[asset.path] || new URL(asset.path,location.href).href;
     roles[id] = asset.role;
   }
-  return {background,cells,time,images,roles,width:gameWidth,height:gameHeight};
+  return {background,cells,time,images,roles,width:gameWidth,height:gameHeight,wallHeight:project.game.wallHeight || 1,threeD:project.type === "game3d"};
 }
 function gameMarkup(project) {
-  return '<div class="game-play"><header><h2>'+esc(project.name)+'</h2><strong id="play-score"></strong></header><canvas width="640" height="400" tabindex="0" aria-label="Game board"></canvas><div class="hud" id="play-status" role="status"></div><div class="controls" aria-label="Game controls"><button data-key="ArrowLeft">Left</button><button data-key="ArrowUp">Up</button><button data-key="ArrowDown">Down</button><button data-key="ArrowRight">Right</button><button id="restart">Restart</button></div><p>Move with the arrow keys, WASD, or the on-screen controls.</p></div>';
+  return '<div class="game-play"><header><h2>'+esc(project.name)+'</h2><strong id="play-score"></strong></header><canvas width="640" height="400" tabindex="0" aria-label="Game board"></canvas><div class="hud" id="play-status" role="status"></div><div class="controls" aria-label="Game controls"><button data-key="ArrowLeft">Left</button><button data-key="ArrowUp">Up</button><button data-key="ArrowDown">Down</button><button data-key="ArrowRight">Right</button><button id="restart">Restart</button>'+(project.type === "game3d" ? '<button id="rotate-camera">Rotate camera</button>' : '')+'</div><p>Move with the arrow keys, WASD, or the on-screen controls.</p></div>';
 }
 function mountGame(root, project, focusBoard = false) {
   root.innerHTML = gameMarkup(project);
-  const dispose = playGame(root,gameConfig(project),gameStep,gameDirections);
+  const dispose = playGame(root,gameConfig(project),gameStep,gameDirections,drawGame3D);
   if (focusBoard) root.querySelector("canvas").focus({preventScroll:true});
   return dispose;
 }
 function gameHTML(project, embedded, css) {
   const config = JSON.stringify(gameConfig(project,embedded)).replaceAll("<","\\u003c");
-  return '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(project.name)+'</title><style>'+css+'</style><body style="margin:0;background:#161025">'+gameMarkup(project)+'<script>('+playGame.toString()+')(document.querySelector(".game-play"),'+config+',('+gameStep.toString()+'),'+JSON.stringify(gameDirections)+');</script></body></html>';
+  return '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(project.name)+'</title><style>'+css+'</style><body style="margin:0;background:#161025">'+gameMarkup(project)+'<script>('+playGame.toString()+')(document.querySelector(".game-play"),'+config+',('+gameStep.toString()+'),'+JSON.stringify(gameDirections)+',('+drawGame3D.toString()+'));</script></body></html>';
 }
