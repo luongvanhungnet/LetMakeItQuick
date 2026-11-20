@@ -76,29 +76,42 @@ function create(t, name) {
   projects.unshift(current);
   save();
   phone = t.type === "app";
+  editorMode = "blocks";
+  selectedBlock = null;
   modal.close();
   go("editor");
 }
 const fields = [["name","Project name",70],["title","Headline",100],["intro","Introduction",350],["button","Button label",50],["section","Section title",85],["details","Section content",900],["color","Accent color",7]];
+let editorMode = "blocks";
 function editor() {
-  view.innerHTML = '<div class="editor-bar"><div><button class="secondary" data-action="projects">My projects</button><span class="save-note" id="save-note">Saved on this device</span></div><div><button class="secondary" data-action="download">Download HTML</button><button class="primary" data-action="publish">Publish</button></div></div><div class="editor"><section class="panel"><h1 class="page-title">Edit project</h1><p class="subtext">'+typeLabel(current.type)+'</p><form id="fields">'+fields.map(([key,label,max]) => '<label class="field">'+(key === "details" && current.type === "app" ? "Checklist items (one per line)" : label)+(key === "details" || key === "intro" ? '<textarea name="'+key+'" maxlength="'+max+'">'+esc(current[key])+'</textarea>' : '<input name="'+key+'" type="'+(key === "color" ? "color" : "text")+'" maxlength="'+max+'" value="'+esc(current[key])+'">')+'</label>').join("")+'</form></section><section><div class="editor-bar"><h2>Preview</h2><div><button class="filter '+(!phone ? "active" : "")+'" aria-pressed="'+!phone+'" data-action="desktop">'+icon("web")+' Desktop</button><button class="filter '+(phone ? "active" : "")+'" aria-pressed="'+phone+'" data-action="mobile">'+icon("app")+' Mobile</button></div></div><div class="preview '+(phone ? "mobile" : "")+'"><iframe id="preview" title="Project preview" sandbox="allow-scripts"></iframe></div></section></div>';
-  $("#fields").addEventListener("submit", (event) => event.preventDefault());
-  $("#fields").addEventListener("input", (event) => {
-    current[event.target.name] = event.target.value;
-    $("#save-note").textContent = save() ? "Saved on this device" : "Draft could not be saved";
-    renderPreview();
-  });
-  renderPreview();
+  const tabs = [["blocks","Build"],["settings","Template content"],["preview","Preview"]].map(([key,label]) =>
+    '<button class="filter '+(key === editorMode ? "active" : "")+'" aria-pressed="'+(key === editorMode)+'" data-action="editor-mode" data-id="'+key+'">'+label+'</button>').join("");
+  view.innerHTML = '<div class="editor-bar"><div><button class="secondary" data-action="projects">My projects</button><span class="save-note" id="save-note">Saved on this device</span></div><div><button class="secondary" data-action="download">Download HTML</button><button class="primary" data-action="publish">Publish</button></div></div><div class="project-heading"><h1 class="page-title">'+esc(current.name || "Untitled project")+'</h1><span class="tag">'+typeLabel(current.type)+'</span></div><nav class="filters editor-tabs" aria-label="Editor views">'+tabs+'</nav><div id="editor-body"></div>';
+  const body = $("#editor-body");
+  if (editorMode === "blocks") {
+    body.innerHTML = builder();
+    handleBuilder();
+  } else if (editorMode === "settings") {
+    body.innerHTML = '<section class="panel template-settings"><h2>Template content</h2><form id="fields">'+fields.map(([key,label,max]) => '<label class="field">'+(key === "details" && current.type === "app" ? "Checklist items (one per line)" : label)+(key === "details" || key === "intro" ? '<textarea name="'+key+'" maxlength="'+max+'">'+esc(current[key])+'</textarea>' : '<input name="'+key+'" type="'+(key === "color" ? "color" : "text")+'" maxlength="'+max+'" value="'+esc(current[key])+'">')+'</label>').join("")+'</form></section>';
+    $("#fields").addEventListener("submit", (event) => event.preventDefault());
+    $("#fields").addEventListener("input", (event) => {
+      current[event.target.name] = event.target.value;
+      $(".project-heading h1").textContent = current.name || "Untitled project";
+      saveEditor();
+    });
+  } else {
+    body.innerHTML = '<div class="editor-bar"><h2>Preview</h2><div><button class="filter '+(!phone ? "active" : "")+'" aria-pressed="'+!phone+'" data-action="desktop">'+icon("web")+' Desktop</button><button class="filter '+(phone ? "active" : "")+'" aria-pressed="'+phone+'" data-action="mobile">'+icon("app")+' Mobile</button></div></div><div class="preview '+(phone ? "mobile" : "")+'"><iframe id="preview" title="Project preview" sandbox="allow-scripts"></iframe></div>';
+    $("#preview").srcdoc = projectHTML(current);
+  }
 }
-function renderPreview() { $("#preview").srcdoc = projectHTML(current); }
-function projectHTML(p, imageOverride) {
+function projectHTML(p, imageOverride, assets) {
   const color = /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : "#643bed";
   const image = templateFor(p)?.image;
   const picture = imageOverride || (image ? new URL("media/"+image,location.href).href : "");
   const isApp = p.type === "app";
   const content = isApp ? '<div class="progress"><strong id="count"></strong><button id="reset" type="button">Reset</button></div><div class="tasks">'+p.details.split("\n").filter((line) => line.trim()).map((line,index) => '<label><input type="checkbox" value="'+index+'"><span>'+esc(line)+'</span></label>').join("")+'</div>' : '<p class="details">'+esc(p.details)+'</p>';
   const appScript = '('+function () {
-    const tasks = [...document.querySelectorAll("input[type=checkbox]")];
+    const tasks = [...document.querySelectorAll("#content input[type=checkbox]")];
     let storage = null;
     let key = "";
     try {
@@ -124,7 +137,10 @@ function projectHTML(p, imageOverride) {
       document.querySelector("#content").scrollIntoView({behavior:"smooth"});
     });
   }.toString()+')();';
-  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(p.name)+'</title><style>'+projectCSS(color)+'</style></head><body class="'+(isApp?"app":"website")+'"><main><header><strong>'+esc(p.name)+'</strong></header><div class="intro '+(picture?"with-photo":"")+'"><div><h1>'+esc(p.title)+'</h1><p>'+esc(p.intro)+'</p>'+(p.button ? '<a class="cta" href="#content">'+esc(p.button)+'</a>' : '')+'</div>'+(picture ? '<img src="'+esc(picture)+'" alt="">' : '')+'</div><section id="content"><h2>'+esc(p.section)+'</h2>'+content+'</section></main>'+'<script>'+scrollScript+(isApp ? appScript : '')+'<\/script>'+'</body></html>';
+  const extra = (p.blocks || []).map((block) => '<section class="lp-block">'+renderBlock(block,assets)+'</section>').join("");
+  const script = scrollScript+(!p.hideTemplate && isApp ? appScript : "")+(extra ? '('+blockInteraction.toString()+')();' : "");
+  const base = p.hideTemplate ? "" : '<div class="intro '+(picture?"with-photo":"")+'"><div><h1>'+esc(p.title)+'</h1><p>'+esc(p.intro)+'</p>'+(p.button ? '<a class="cta" href="#content">'+esc(p.button)+'</a>' : '')+'</div>'+(picture ? '<img src="'+esc(picture)+'" alt="">' : '')+'</div><section id="content"><h2>'+esc(p.section)+'</h2>'+content+'</section>';
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(p.name)+'</title><style>'+projectCSS(color)+blockProjectCSS+'</style></head><body class="'+(isApp?"app":"website")+'"><main><header><strong>'+esc(p.name)+'</strong></header>'+base+extra+'</main><script>'+script+'</script></body></html>';
 }
 function projectCSS(color) {
   return ':root{--accent:'+color+';font-family:system-ui,sans-serif;color:#201b29;background:#faf9fc}*{box-sizing:border-box}body{margin:0}main{max-width:1240px;margin:auto}header{padding:19px clamp(18px,5vw,56px);background:white;border-bottom:1px solid #eae5ef;font-size:17px}.intro{padding:clamp(30px,7vw,76px) clamp(18px,5vw,56px);display:grid;align-items:center;gap:20px;background:color-mix(in srgb,var(--accent) 10%,white)}.with-photo{grid-template-columns:1fr 1fr}.intro img{width:100%;height:clamp(170px,26vw,390px);object-fit:cover;border-radius:14px}h1{font-size:clamp(34px,6vw,78px);line-height:1.02;letter-spacing:-.055em;margin:0 0 16px}p{font-size:17px;line-height:1.55;margin:0;white-space:pre-wrap}h1,h2,p,strong,span{overflow-wrap:anywhere}.cta{display:inline-block;margin-top:20px;padding:11px 16px;border-radius:8px;background:var(--accent);color:white;text-decoration:none;font-weight:700;text-shadow:0 1px 3px #0008}section{padding:28px clamp(18px,5vw,56px)}h2{margin:0 0 15px;font-size:28px;letter-spacing:-.025em}.app main{max-width:650px;min-height:100vh;background:white}.app .intro{border-radius:15px;margin:14px;padding:23px}.app section{padding:14px 18px 30px}.tasks{display:grid;gap:8px}.tasks label{display:flex;align-items:center;gap:10px;border:1px solid #eae5ef;border-radius:9px;padding:11px;cursor:pointer}.tasks input{width:19px;height:19px;accent-color:var(--accent);flex:none}.tasks input:checked+span{text-decoration:line-through;color:#686270}.progress{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;font-size:14px}.progress button{font:inherit;background:none;border:1px solid #ddd5e8;border-radius:7px;padding:4px 10px;cursor:pointer}@media(max-width:520px){.with-photo{grid-template-columns:1fr}}';
@@ -132,18 +148,22 @@ function projectCSS(color) {
 function snapshotLink(p) {
   const snapshot = {template:p.template,type:p.type};
   for (const [key] of fields) snapshot[key] = p[key];
+  if (p.blocks?.length) snapshot.blocks = p.blocks;
+  if (p.hideTemplate) snapshot.hideTemplate = true;
   const bytes = new TextEncoder().encode(JSON.stringify(snapshot));
-  const code = btoa(String.fromCharCode(...bytes)).replaceAll("+","-").replaceAll("/","_").replace(/=+$/,"");
+  const code = btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join("")).replaceAll("+","-").replaceAll("/","_").replace(/=+$/,"");
   const url = new URL("./",location.href);
   url.hash = "view="+code;
   return url.href;
 }
 function readSnapshot(hash) {
   const code = hash.slice(6);
-  if (code.length > 12000 || !/^[\w-]+$/.test(code)) throw Error("Invalid snapshot");
+  if (code.length > 200000 || !/^[\w-]+$/.test(code)) throw Error("Invalid snapshot");
   const bytes = Uint8Array.from(atob(code.replaceAll("-","+").replaceAll("_","/")), (char) => char.charCodeAt(0));
   const p = JSON.parse(new TextDecoder().decode(bytes));
   if (!p || !["web","app"].includes(p.type) || fields.some(([key,,max]) => typeof p[key] !== "string" || p[key].length > max)) throw Error("Invalid snapshot");
+  if (p.blocks !== undefined && !validBlocks(p.blocks)) throw Error("Invalid blocks");
+  p.hideTemplate = p.hideTemplate === true;
   return p;
 }
 function route() {
@@ -155,47 +175,51 @@ function route() {
   try {
     const p = readSnapshot(location.hash);
     document.title = p.name || "Published project";
-    if (p.type === "app") {
+    if (p.type === "app" || p.blocks?.some((block) => block.type === "checklist")) {
       const frame = document.createElement("iframe");
       frame.className = "published-view";
       frame.title = document.title;
-      frame.setAttribute("sandbox","allow-scripts allow-same-origin");
+      frame.setAttribute("sandbox","allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox");
       frame.srcdoc = projectHTML(p);
       target.replaceChildren(frame);
     } else {
       const frame = document.createElement("iframe");
       frame.className = "published-view";
       frame.title = document.title;
-      frame.setAttribute("sandbox","allow-scripts");
+      frame.setAttribute("sandbox","allow-scripts allow-popups allow-popups-to-escape-sandbox");
       frame.srcdoc = projectHTML(p);
       target.replaceChildren(frame);
     }
   } catch { target.innerHTML = '<p class="empty">This project link is incomplete or invalid. <a href="./">Open Launchpad Studio</a></p>'; }
 }
 function publish() {
-  if (!current.name.trim() || !current.title.trim()) { toast("Enter a project name and headline first."); return; }
+  if (!current.name.trim() || (!current.hideTemplate && !current.title.trim())) { toast("Enter a project name and headline first."); return; }
   current.link = snapshotLink(current);
   save();
   openDialog("Project published",'<p class="subtext">Share this snapshot with friends. Publish again to create a link with your latest edits.</p><label class="field">Share link<input id="share-link" readonly value="'+esc(current.link)+'"></label><div class="dialog-actions"><button class="primary" data-action="copy">Copy link</button><a class="secondary" href="'+esc(current.link)+'" target="_blank" rel="noopener">Open published project</a></div><p class="subtext" id="copy-status" aria-live="polite"></p>');
 }
 async function download() {
-  const p = {...current};
-  const image = templateFor(p)?.image;
-  let inlineImage;
-  if (image) {
-    try {
-      const response = await fetch("media/"+image);
+  const p = structuredClone(current);
+  const image = p.hideTemplate ? null : templateFor(p)?.image;
+  const paths = new Set(image ? ["media/"+image] : []);
+  for (const block of p.blocks || []) {
+    if (block.type === "image" && /^media\/(forest|interior|coffee)\.jpg$/.test(block.b)) paths.add(block.b);
+  }
+  const assets = {};
+  try {
+    await Promise.all([...paths].map(async (path) => {
+      const response = await fetch(path);
       if (!response.ok) throw Error("Image missing");
       const file = await response.blob();
-      inlineImage = await new Promise((resolve,reject) => {
+      assets[path] = await new Promise((resolve,reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result);
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
-    } catch { toast("The image couldn’t be embedded. Try again when connected."); return; }
-  }
-  const url = URL.createObjectURL(new Blob([projectHTML(p,inlineImage)], {type:"text/html"}));
+    }));
+  } catch { toast("The image couldn’t be embedded. Try again when connected."); return; }
+  const url = URL.createObjectURL(new Blob([projectHTML(p,assets["media/"+image],assets)], {type:"text/html"}));
   const link = document.createElement("a");
   link.href = url;
   link.download = (p.name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"") || "project")+".html";
@@ -212,7 +236,8 @@ const actions = {
     document.querySelectorAll(".filter").forEach((button) => { const active = button.dataset.id === id; button.classList.toggle("active",active); button.setAttribute("aria-pressed",active); });
     renderCards();
   },
-  open: (id) => { current = projects.find((p) => p.id === id); phone = current.type === "app"; go("editor"); },
+  open: (id) => { current = projects.find((p) => p.id === id); phone = current.type === "app"; editorMode = "blocks"; selectedBlock = null; go("editor"); },
+  "editor-mode": (mode) => { editorMode = mode; editor(); },
   desktop: () => { phone = false; editor(); }, mobile: () => { phone = true; editor(); },
   publish, download,
   copy: async () => {
