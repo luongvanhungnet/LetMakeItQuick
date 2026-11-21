@@ -34,7 +34,7 @@ const blockFields = {
   list: ["Items (one per line)"], stats: ["Heading", "Rows (value | label)"],
   callout: ["Heading", "Message"], image: ["Alt text", "Image URL (HTTPS)"],
   video: ["Title", "Direct video file URL (HTTPS)"], audio: ["Title", "Direct audio file URL (HTTPS)"],
-  button: ["Button label", "Destination URL (HTTPS)"], faq: ["Question", "Answer"],
+  button: ["Button label", "External URL (HTTPS, if no page is selected)"], faq: ["Question", "Answer"],
   checklist: ["Heading", "Tasks (one per line)"], counter: ["Label", "Starting number"],
   progress: ["Label", "Percent complete"], columns: ["Left column", "Right column"],
   divider: [], spacer: ["Height in pixels (8–120)"]
@@ -73,7 +73,7 @@ function blockURL(value, asset = false) {
 function blockNumber(value, min, max) {
   return Math.min(max, Math.max(min, Math.round(Number(value)) || 0));
 }
-function renderBlock(block, assets = {}) {
+function renderBlock(block, assets = {}, pageIds = new Set()) {
   const a = esc(block.a), b = esc(block.b), rows = block.a.split("\n").filter((row) => row.trim());
   const url = esc(blockURL(block.b,block.type === "image"));
   switch (block.type) {
@@ -88,7 +88,7 @@ function renderBlock(block, assets = {}) {
     case "callout": return '<aside class="lp-callout"><h2>'+a+'</h2><p>'+b+'</p></aside>';
     case "image": return url ? '<img class="lp-media" src="'+(assets[block.b] ? esc(assets[block.b]) : url)+'" alt="'+a+'" loading="lazy">' : '';
     case "video": case "audio": return url ? '<'+block.type+' class="lp-media" controls preload="none" aria-label="'+a+'" src="'+url+'"></'+block.type+'>' : '';
-    case "button": return url ? '<a class="lp-button" href="'+url+'" target="_blank" rel="noopener noreferrer">'+a+'</a>' : '';
+    case "button": return pageIds.has(block.pageTarget) ? pageAnchor(block.pageTarget,block.a,"lp-button") : url ? '<a class="lp-button" href="'+url+'" target="_blank" rel="noopener noreferrer">'+a+'</a>' : '';
     case "faq": return '<details><summary>'+a+'</summary><p>'+b+'</p></details>';
     case "checklist": return '<h2>'+a+'</h2><div class="tasks" data-checklist="'+esc(block.id)+'">'+block.b.split("\n").filter((row) => row.trim()).map((row) => '<label><input type="checkbox"><span>'+esc(row)+'</span></label>').join("")+'</div>';
     case "counter": return '<div class="lp-counter" data-counter><strong>'+a+'</strong><button type="button" data-delta="-1" aria-label="Decrease '+a+'">−</button><output aria-live="polite">'+blockNumber(block.b,-9999,9999)+'</output><button type="button" data-delta="1" aria-label="Increase '+a+'">+</button></div>';
@@ -129,7 +129,7 @@ const blockProjectCSS = '.lp-block{padding-top:11px;padding-bottom:11px}.lp-bloc
 
 function builder() {
   const shelf = Object.entries(blockGroups).map(([group, types]) => '<div class="tool-group"><h3>'+group+'</h3><div class="tool-grid">'+Object.entries(types).map(([key,[label,glyph]]) => '<button type="button" class="build-tool" draggable="true" data-tool="'+key+'"><span aria-hidden="true">'+glyph+'</span>'+label+'</button>').join("")+'</div></div>').join("");
-  return '<div class="builder"><aside class="panel block-shelf"><h2>Blocks</h2><p class="subtext">Drag a block or select it to add.</p><button class="secondary block-assets" data-action="project-assets">Browse asset library</button>'+shelf+'</aside><section class="panel build-stage"><div class="stage-head"><div><h2>Page layout</h2><p class="subtext">Drag blocks to reorder them.</p></div><span class="tag" id="block-count"></span></div><label class="template-switch"><input id="show-template" type="checkbox" '+(!current.hideTemplate ? 'checked' : '')+'> Show template content</label><div id="block-stage"></div><div id="block-inspector"></div></section></div>';
+  return '<div class="builder"><aside class="panel block-shelf"><h2>Blocks</h2><p class="subtext">Drag a block or select it to add.</p><button class="secondary block-assets" data-action="project-assets">Browse asset library</button>'+shelf+'</aside><section class="panel build-stage"><div class="stage-head"><div><h2>Page layout</h2><p class="subtext">Drag blocks to reorder them.</p></div><span class="tag" id="block-count"></span></div><label class="template-switch"><input id="show-template" type="checkbox" '+(!editingPage().hideTemplate ? 'checked' : '')+'> Show template content</label><div id="block-stage"></div><div id="block-inspector"></div></section></div>';
 }
 let selectedBlock = null;
 let draggedBlock = null;
@@ -139,7 +139,7 @@ function saveEditor() {
   schedulePreview();
 }
 function renderBlockStage() {
-  const blocks = current.blocks || [];
+  const blocks = editingPage().blocks || [];
   const zone = (index) => '<div class="drop-slot" data-slot="'+index+'" aria-hidden="true"></div>';
   $("#block-count").textContent = blocks.length+" / "+maxBlocks+" blocks";
   $("#block-stage").innerHTML = blocks.length ? zone(0)+blocks.map((block,index) => {
@@ -150,7 +150,7 @@ function renderBlockStage() {
   renderBlockInspector();
 }
 function renderBlockInspector() {
-  const blocks = current.blocks || [];
+  const blocks = editingPage().blocks || [];
   const index = blocks.findIndex((block) => block.id === selectedBlock);
   if (index < 0) { $("#block-inspector").innerHTML = ""; return; }
   const block = blocks[index];
@@ -159,18 +159,18 @@ function renderBlockInspector() {
     const key = i === 0 ? "a" : "b";
     const multi = ["list","stats","callout","quote","text","faq","checklist","columns"].includes(block.type);
     return '<label class="field">'+name+(multi ? '<textarea maxlength="'+maxBlockText+'" data-property="'+key+'">'+esc(block[key])+'</textarea>' : '<input maxlength="'+maxBlockText+'" data-property="'+key+'" value="'+esc(block[key])+'">')+'</label>';
-  }).join("")+'</div>';
+  }).join("")+(block.type === "button" ? '<label class="field">Open page<select data-property="pageTarget">'+pageOptions(current,block.pageTarget,"Use destination URL")+'</select></label>' : "")+'</div>';
 }
 function handleBuilder() {
   const root = $(".builder");
   renderBlockStage();
-  $("#show-template").addEventListener("change", (event) => { current.hideTemplate = !event.target.checked; saveEditor(); });
+  $("#show-template").addEventListener("change", (event) => { editingPage().hideTemplate = !event.target.checked; saveEditor(); });
   function add(type, slot, copy) {
-    current.blocks ??= [];
-    if (current.blocks.length >= maxBlocks) { toast("This project already has "+maxBlocks+" blocks."); return; }
+    editingPage().blocks ??= [];
+    if (editingPage().blocks.length >= maxBlocks) { toast("This project already has "+maxBlocks+" blocks."); return; }
     const block = newBlock(type);
-    if (copy) { block.a = copy.a; block.b = copy.b; }
-    current.blocks.splice(slot,0,block);
+    if (copy) { block.a = copy.a; block.b = copy.b; if (copy.pageTarget) block.pageTarget = copy.pageTarget; }
+    editingPage().blocks.splice(slot,0,block);
     selectedBlock = block.id;
     saveEditor();
     renderBlockStage();
@@ -178,17 +178,17 @@ function handleBuilder() {
   root.addEventListener("click", (event) => {
     const button = event.target.closest("button");
     if (!button) return;
-    if (button.dataset.tool) { add(button.dataset.tool,current.blocks?.length || 0); return; }
+    if (button.dataset.tool) { add(button.dataset.tool,editingPage().blocks?.length || 0); return; }
     if (button.dataset.select) { selectedBlock = button.dataset.select; renderBlockStage(); root.querySelector('.row-title[aria-pressed="true"]')?.focus(); return; }
     const action = button.dataset.blockAction;
     if (!action) return;
-    const index = current.blocks.findIndex((block) => block.id === selectedBlock);
+    const index = editingPage().blocks.findIndex((block) => block.id === selectedBlock);
     if (index < 0) return;
-    if (action === "duplicate") { add(current.blocks[index].type,index+1,current.blocks[index]); return; }
+    if (action === "duplicate") { add(editingPage().blocks[index].type,index+1,editingPage().blocks[index]); return; }
     if (action === "remove") {
-      current.blocks.splice(index,1);
-      selectedBlock = current.blocks[Math.min(index,current.blocks.length-1)]?.id || null;
-    } else moveBlock(current.blocks,index,action === "up" ? index-1 : index+2);
+      editingPage().blocks.splice(index,1);
+      selectedBlock = editingPage().blocks[Math.min(index,editingPage().blocks.length-1)]?.id || null;
+    } else moveBlock(editingPage().blocks,index,action === "up" ? index-1 : index+2);
     saveEditor();
     renderBlockStage();
     root.querySelector('.row-title[aria-pressed="true"]')?.focus();
@@ -196,7 +196,7 @@ function handleBuilder() {
   root.addEventListener("input", (event) => {
     const key = event.target.dataset.property;
     if (!key) return;
-    const block = current.blocks.find((item) => item.id === selectedBlock);
+    const block = editingPage().blocks.find((item) => item.id === selectedBlock);
     if (!block) return;
     block[key] = event.target.value;
     saveEditor();
@@ -246,8 +246,8 @@ function handleBuilder() {
     clearDrop();
     root.classList.remove("dragging-block");
     if (tool) add(tool,slot);
-    else if (moveBlock(current.blocks,Number(move),slot)) {
-      selectedBlock = current.blocks[Number(move) < slot ? slot-1 : slot].id;
+    else if (moveBlock(editingPage().blocks,Number(move),slot)) {
+      selectedBlock = editingPage().blocks[Number(move) < slot ? slot-1 : slot].id;
       saveEditor();
       renderBlockStage();
     }
