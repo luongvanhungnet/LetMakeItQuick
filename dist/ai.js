@@ -281,10 +281,49 @@ function editDemoProposal(project,prompt,history) {
   return plan;
 }
 
+const aiUndo = new Map();
+function aiEditableSignature(project) {
+  const {aiHistory,...content} = project;
+  return JSON.stringify(content);
+}
+function aiProjectDiff(before,after) {
+  const diffs = [];
+  function add(label,oldValue,newValue) {
+    if (oldValue !== newValue) diffs.push({label,oldValue:String(oldValue ?? ""),newValue:String(newValue ?? "")});
+  }
+  for (const [key,label] of fields) add(label,before[key],after[key]);
+  const oldBlocks = before.blocks || [], newBlocks = after.blocks || [];
+  const blockDiff = block => block ? [block.a,block.b,block.pageTarget].filter(Boolean).join("\n") : "";
+  for (const [index,block] of oldBlocks.entries()) {
+    const next = newBlocks.findIndex(item=>item.id === block.id);
+    const label = blockTypes[block.type][0];
+    add(label,blockDiff(block),blockDiff(newBlocks[next]));
+    if (next >= 0 && next !== index) add(label+" position",index+1,next+1);
+  }
+  for (const block of newBlocks) if (!oldBlocks.some(item=>item.id === block.id)) add(blockTypes[block.type][0],"",blockDiff(block) || "Added");
+  if (before.game && after.game) {
+    for (const [key,label] of [["background","Background"],["time","Timer (seconds)"],["wallHeight","Wall height"]]) add(label,before.game[key],after.game[key]);
+    const changed = new Set([...Object.keys(before.game.cells),...Object.keys(after.game.cells)]);
+    for (const key of changed) add("Tile "+(Number(key)+1),before.game.cells[key],after.game.cells[key]);
+  }
+  if (before.video && after.video) {
+    add("Aspect ratio",before.video.format,after.video.format);
+    const scenes = Math.max(before.video.scenes.length,after.video.scenes.length);
+    const summary = scene => scene ? [scene.title,scene.caption,scene.asset,scene.duration+"s",scene.trim+"s trim",scene.layout,scene.transition,scene.color].filter(Boolean).join(" · ") : "";
+    for (let index=0;index<scenes;index++) add("Scene "+(index+1),summary(before.video.scenes[index]),summary(after.video.scenes[index]));
+  }
+  return diffs;
+}
+function aiDiffMarkup(diffs) {
+  return diffs.length ? '<ol class="ai-diff" aria-label="Before and after changes">'+diffs.slice(0,40).map(item=>
+    '<li><strong>'+esc(item.label)+'</strong><del aria-label="Before">'+esc(item.oldValue || "(empty)")+'</del><ins aria-label="After">'+esc(item.newValue || "(empty)")+'</ins></li>'
+  ).join("")+'</ol>'+(diffs.length > 40 ? '<p class="subtext">'+(diffs.length-40)+' more changes. Review the project preview after applying.</p>' : "") : "";
+}
+
 function renderAIEditor() {
   const projectId = current.id;
   const host = $("#editor-body");
-  host.innerHTML = '<section class="panel ai-chat"><div class="stage-head"><div><h2>AI chat</h2><p class="subtext">Ask for changes to this project, then review the proposal.</p></div><button type="button" class="filter" data-action="editor-mode" data-id="blocks">Manual editor</button></div><div class="ai-transcript" id="ai-transcript" aria-label="Project conversation" role="log"></div><div id="chat-proposal"></div><form id="chat-form"><label class="field">Mode<select name="mode"><option value="demo">Demo · no API key</option><option value="gpt" disabled>GPT · checking connection…</option></select></label><p class="subtext" id="chat-sharing" hidden>GPT sends your message, recent conversation, and project content to OpenAI.</p><label class="field">Message<textarea name="prompt" required maxlength="1700" placeholder="Describe a change or ask a follow-up"></textarea></label><div class="dialog-actions"><button type="submit" class="primary">Send</button></div></form><p class="subtext" id="chat-status" role="status"></p></section>';
+  host.innerHTML = '<section class="panel ai-chat"><div class="stage-head"><div><h2>AI chat</h2><p class="subtext">Ask for changes to this project, then review the proposal.</p></div><button type="button" class="filter" data-action="editor-mode" data-id="blocks">Manual editor</button></div><div class="ai-transcript" id="ai-transcript" aria-label="Project conversation" role="log"></div><div id="chat-proposal"></div><div id="chat-undo"></div><form id="chat-form"><label class="field">Mode<select name="mode"><option value="demo">Demo · no API key</option><option value="gpt" disabled>GPT · checking connection…</option></select></label><p class="subtext" id="chat-sharing" hidden>GPT sends your message, recent conversation, and project content to OpenAI.</p><label class="field">Message<textarea name="prompt" required maxlength="1700" placeholder="Describe a change or ask a follow-up"></textarea></label><div class="dialog-actions"><button type="submit" class="primary">Send</button></div></form><p class="subtext" id="chat-status" role="status"></p></section>';
   const form = $("#chat-form"), transcript = $("#ai-transcript"), status = $("#chat-status"), result = $("#chat-proposal");
   const mode = form.elements.mode;
   mode.addEventListener("change",() => { $("#chat-sharing").hidden = mode.value !== "gpt"; });
@@ -299,7 +338,31 @@ function renderAIEditor() {
     transcript.innerHTML = history.length ? history.map((item) => '<div class="chat-message '+(item.role === "user"?"chat-user":"chat-assistant")+'"><strong>'+(item.role === "user"?"You":"Assistant")+'</strong><p>'+esc(item.text)+'</p></div>').join("") : '<p class="subtext">Try '+(current.type === "video"?'“Make the video vertical” or “Change scene 1’s title to ‘Coming soon’.”':isGameType(current.type)?'“Set a 30-second timer” or “Use a moonlit background.”':'“Change the headline to ‘Spring collection’” or “Remove block 2.”')+'</p>';
     transcript.scrollTop = transcript.scrollHeight;
   }
+  function renderUndo() {
+    const host = $("#chat-undo");
+    const undo = aiUndo.get(projectId);
+    host.replaceChildren();
+    if (!undo || aiEditableSignature(current) !== undo.expected) return;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = "Undo last AI edit";
+    button.addEventListener("click",()=>{
+      const index = projects.indexOf(current);
+      if (index < 0 || aiEditableSignature(current) !== undo.expected) return;
+      const history = current.aiHistory;
+      current = projects[index] = {...undo.previous,aiHistory:history};
+      aiUndo.delete(projectId);
+      result.replaceChildren();
+      $(".project-heading h1").textContent = current.name || "Untitled project";
+      append("assistant","Undid the last AI edit.");
+      refreshPreview();
+      renderUndo();
+    });
+    host.append(button);
+  }
   renderHistory();
+  renderUndo();
   fetch("/api/ai",{cache:"no-store"}).then((response) => response.ok ? response.json() : null).then((state) => {
     mode.options[1].disabled = !state?.gptAvailable;
     mode.options[1].textContent = state?.gptAvailable ? "GPT · "+state.model : "GPT · API key required";
@@ -346,17 +409,20 @@ function renderAIEditor() {
       append("assistant",reply);
       status.textContent = "";
       if (!changes.length) return;
-      result.innerHTML = '<section class="ai-result"><h3>Review changes</h3><ul>'+changes.map(change=>'<li>'+esc(change)+'</li>').join("")+'</ul><div class="dialog-actions"><button type="button" class="primary" data-apply>Apply changes</button><button type="button" class="secondary" data-dismiss>Dismiss</button></div></section>';
+      result.innerHTML = '<section class="ai-result"><h3>Review changes</h3><ul>'+changes.map(change=>'<li>'+esc(change)+'</li>').join("")+'</ul>'+aiDiffMarkup(aiProjectDiff(original,draft))+'<div class="dialog-actions"><button type="button" class="primary" data-apply>Apply changes</button><button type="button" class="secondary" data-dismiss>Dismiss</button></div></section>';
       result.querySelector("[data-apply]").addEventListener("click",() => {
         const projectIndex = projects.indexOf(original);
         if (projectIndex < 0 || current !== original) return;
+        const previous = structuredClone(current);
         draft.aiHistory = current.aiHistory;
         current = projects[projectIndex] = draft;
+        aiUndo.set(projectId,{previous,expected:aiEditableSignature(current)});
         $(".project-heading h1").textContent = current.name || "Untitled project";
         selectedScene = 0;
         result.replaceChildren();
         append("assistant","Applied to the project.");
         refreshPreview();
+        renderUndo();
       },{once:true});
       result.querySelector("[data-dismiss]").addEventListener("click",() => { result.replaceChildren(); append("assistant","Proposal dismissed."); },{once:true});
     } catch (error) {

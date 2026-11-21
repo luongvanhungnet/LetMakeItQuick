@@ -112,6 +112,7 @@ function playWorld3D(root,config,createWorld,stepWorld) {
   }
   gl.useProgram(program);
   gl.enable(gl.DEPTH_TEST);
+  gl.enable(gl.CULL_FACE);
   const position = gl.getAttribLocation(program,"aPosition");
   const color = gl.getAttribLocation(program,"aColor");
   gl.enableVertexAttribArray(position);
@@ -121,9 +122,13 @@ function playWorld3D(root,config,createWorld,stepWorld) {
   const controls = new AbortController();
   const signal = controls.signal;
   const keys = new Set();
-  let world, yaw, pitch, deadline, started, frame, previous;
+  let world, yaw, pitch, deadline, started, frame, frameDelay, previous, nextFrameAt;
   let dragging = null, active = true, disposed = false;
   let staticCount = 0, viewWidth = 0, viewHeight = 0;
+  let actorVertices = new Float32Array(0);
+  let adaptiveScale = 1, measuredTime = 0, measuredFrames = 0, stableWindows = 0;
+  const targetInterval = 1000/60;
+  const actorMesh = [];
   const observer = new ResizeObserver(([entry]) => {
     viewWidth = entry.contentRect.width;
     viewHeight = entry.contentRect.height;
@@ -212,7 +217,7 @@ function playWorld3D(root,config,createWorld,stepWorld) {
   }
   function render(now) {
     if (!viewWidth || !viewHeight) return;
-    const density = Math.min(2,window.devicePixelRatio || 1,1600/viewWidth,1000/viewHeight);
+    const density = adaptiveScale*Math.min(2,window.devicePixelRatio || 1,1600/viewWidth,1000/viewHeight);
     const width = Math.max(1,Math.round(viewWidth*density));
     const height = Math.max(1,Math.round(viewHeight*density));
     if (canvas.width !== width || canvas.height !== height) {
@@ -226,7 +231,8 @@ function playWorld3D(root,config,createWorld,stepWorld) {
     gl.uniform2f(uniforms.Yaw,Math.cos(yaw),Math.sin(yaw));
     gl.uniform2f(uniforms.Pitch,Math.cos(pitch),Math.sin(pitch));
     renderBuffer(staticBuffer,staticCount);
-    const mesh = [];
+    const mesh = actorMesh;
+    mesh.length = 0;
     for (const item of world.tiles.values()) if (item.role === "gem") {
       crystal(mesh,item.x,.59+Math.sin(now*.003+item.x)*.09,item.z,.22,.31,now*.002,material(item.id));
     }
@@ -236,9 +242,12 @@ function playWorld3D(root,config,createWorld,stepWorld) {
       box(mesh,enemy.x-.22,.53,enemy.z-.20,.44,.22,.40,tint);
       for (const x of [-.13,.08]) box(mesh,enemy.x+x,.41,enemy.z-.27,.055,.06,.54,[1,.27,.36]);
     }
-    gl.bindBuffer(gl.ARRAY_BUFFER,actorBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(mesh),gl.DYNAMIC_DRAW);
-    renderBuffer(actorBuffer,mesh.length/6);
+    if (mesh.length) {
+      actorVertices.set(mesh);
+      gl.bindBuffer(gl.ARRAY_BUFFER,actorBuffer);
+      gl.bufferSubData(gl.ARRAY_BUFFER,0,actorVertices.subarray(0,mesh.length));
+      renderBuffer(actorBuffer,mesh.length/6);
+    }
     const remaining = deadline === undefined ? config.time : Math.max(0,Math.ceil((deadline-now)/1000));
     const message = (world.total-world.remaining)+" / "+world.total+" collected"+(config.time?" · "+remaining+"s":"");
     if (score.textContent !== message) score.textContent = message;
@@ -254,13 +263,41 @@ function playWorld3D(root,config,createWorld,stepWorld) {
     previous = undefined;
     keys.clear();
     staticGeometry();
+    // Eight triangles per gem, forty per creature, six floats per vertex.
+    actorVertices = new Float32Array((world.total*8+world.enemies.length*40)*18);
+    gl.bindBuffer(gl.ARRAY_BUFFER,actorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER,actorVertices.byteLength,gl.DYNAMIC_DRAW);
+  }
+  function queueFrame() {
+    // Leave margin for a display-refresh deadline without busy-looping on
+    // browsers whose rAF runs faster than the target render cadence.
+    const delay = nextFrameAt-performance.now()-5;
+    if (delay > 1) frameDelay = setTimeout(()=>{ frame = requestAnimationFrame(loop); },delay);
+    else frame = requestAnimationFrame(loop);
   }
   function loop(now) {
     if (!active) return;
-    frame = requestAnimationFrame(loop);
-    // Bound render work while allowing for jitter and high-refresh display intervals.
-    if (previous !== undefined && now-previous < 13.5) return;
-    const dt = Math.min(.1,Math.max(0,(now-(previous ?? now))/1000));
+    const elapsed = now-(previous ?? now);
+    if (nextFrameAt !== undefined && now < nextFrameAt-6) { queueFrame(); return; }
+    nextFrameAt = Math.max((nextFrameAt ?? now)+targetInterval,now+targetInterval-6);
+    const dt = Math.min(.1,Math.max(0,elapsed/1000));
+    if (previous !== undefined && elapsed <= 250 && viewWidth && viewHeight) {
+      measuredTime += elapsed;
+      measuredFrames++;
+      if (measuredTime >= 800) {
+        const mean = measuredTime/measuredFrames;
+        if (mean > 18) {
+          adaptiveScale = Math.max(.5,adaptiveScale*.8);
+          stableWindows = 0;
+        } else if (mean < 16.9) {
+          if (++stableWindows >= 15) {
+            adaptiveScale = Math.min(1,adaptiveScale+.05);
+            stableWindows = 0;
+          }
+        } else stableWindows = 0;
+        measuredTime = measuredFrames = 0;
+      }
+    }
     previous = now;
     if (!world.result) {
       const left = Number(keys.has("arrowleft")), right = Number(keys.has("arrowright"));
@@ -278,6 +315,7 @@ function playWorld3D(root,config,createWorld,stepWorld) {
       }
     }
     render(now);
+    if (active) queueFrame();
   }
   const allowed = new Set(["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"]);
   root.addEventListener("keydown",event=>{
@@ -316,6 +354,7 @@ function playWorld3D(root,config,createWorld,stepWorld) {
     event.preventDefault();
     active = false;
     cancelAnimationFrame(frame);
+    clearTimeout(frameDelay);
     status.textContent = "The GPU connection was interrupted. Reopen Playtest or reload the game.";
   },{signal});
   restart();
@@ -327,6 +366,7 @@ function playWorld3D(root,config,createWorld,stepWorld) {
     controls.abort();
     observer.disconnect();
     cancelAnimationFrame(frame);
+    clearTimeout(frameDelay);
     gl.deleteBuffer(staticBuffer);
     gl.deleteBuffer(actorBuffer);
     gl.deleteProgram(program);

@@ -11,4 +11,4 @@ globalThis.fetch = (url, options) => {
     fields:value && (followUp || /headline/.test(input.prompt)) ? {title:value} : {}
   })}]}]}));
 };
-serve({OPENAI_API_KEY:"local-fixture"},4173,"browser-test");
+serve({OPENAI_API_KEY:"local-fixture"},Number(process.env.LAUNCHPAD_TEST_PORT || 4173),"browser-test");

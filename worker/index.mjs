@@ -90,9 +90,23 @@ function serveClip(request,path,content,headers) {
   }});
 }
 export default {
+  async scheduled(_event,env) { await runScheduledOperations(env); },
   async fetch(request,env) {
     const path = new URL(request.url).pathname;
     if (path === "/api/ai") return handleAI(request,env);
+    try {
+      if (path === "/api/team" || path.startsWith("/api/team/")) return await handleTeam(request,env);
+      if (path === "/api/catalog" || path.startsWith("/api/catalog/")) return await handleCatalog(request,env);
+      if (path === "/api/workspace" || path.startsWith("/api/workspace/")) return await handleWorkspace(request,env);
+      if (path === "/api/releases" || path.startsWith("/api/releases/") || path.startsWith("/launch/") || path.startsWith("/staging/") || getReleaseDomainSlug(request,env)) return await handleReleases(request,env,siteAssets["/"][1]);
+      if (path === "/api/commerce" || path.startsWith("/api/commerce/")) return await handleCommerce(request,env);
+      if (path === "/api/operations" || path.startsWith("/api/operations/")) return await handleOperations(request,env);
+    } catch (error) {
+      if (error instanceof StorageUnavailableError) return api({error:error.message},503);
+      if (error instanceof RangeError) return api({error:"The workspace record exceeds the storage limit."},413);
+      console.error("Workspace route failed",error?.name);
+      return api({error:"The workspace request could not be completed."},500);
+    }
     if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method unavailable",{status:405});
     const entry = Object.hasOwn(siteAssets,path) ? siteAssets[path] : null;
     if (!entry) return new Response("Page not found",{status:404});

@@ -1,5 +1,7 @@
 # Launchpad Studio release verification
 
+This report describes the original release candidate. See [roadmap status](ROADMAP_STATUS.md#verification-boundary) for verification of the newer roadmap branch.
+
 ## Game production scope
 
 | Stage | Reference and scope |

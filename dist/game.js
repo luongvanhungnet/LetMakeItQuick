@@ -246,7 +246,7 @@ function gameConfig(project, embedded = {}) {
   const images = Object.create(null), roles = Object.create(null);
   for (const id of new Set([background,...Object.values(cells)])) {
     const asset = assetById.get(id);
-    images[id] = embedded[asset.path] || new URL(asset.path,location.href).href;
+    images[id] = embedded[asset.path] || new URL("/"+asset.path,location.origin).href;
     roles[id] = asset.role;
   }
   return {background,cells,time,images,roles,width:gameWidth,height:gameHeight,wallHeight:project.game.wallHeight || 1,threeD:project.type === "game3d"};

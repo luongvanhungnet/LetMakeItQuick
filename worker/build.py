@@ -1,6 +1,7 @@
 from base64 import b64encode
 from pathlib import Path
 import json
+import re
 
 root = Path(__file__).resolve().parent.parent
 static = root / "dist"
@@ -17,5 +18,12 @@ for file in sorted(static.rglob("*")):
 assets["/"] = assets["/index.html"]
 out = static / "server" / "index.js"
 out.parent.mkdir(exist_ok=True)
+modules = [root / "worker" / "data.mjs", static / "release-model.js"]
+modules.extend(root / "worker" / module for module in [
+    "workspace.mjs", "releases.mjs", "operations.mjs", "commerce.mjs", "catalog.mjs", "team.mjs"
+])
+parts = [re.sub(r"^export (?=(?:async )?function |const |class )", "", module.read_text(encoding="utf-8"), flags=re.M)
+         for module in modules]
 out.write_text("const siteAssets = " + json.dumps(assets, ensure_ascii=False) + ";\n" +
-               (root / "worker" / "index.mjs").read_text(encoding="utf-8"), encoding="utf-8")
+               "\n;\n".join(parts + [(root / "worker" / "index.mjs").read_text(encoding="utf-8")]),
+               encoding="utf-8")

@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "node worker/dev.mjs",
-    "test": "node --test tests/worker.test.mjs && playwright test"
+    "test": "python3 worker/build.py && node --test tests/*.test.mjs && playwright test"
   },
   "devDependencies": {
     "@playwright/test": "1.60.0"

@@ -1,0 +1,35 @@
+dialog:has(.operations-board){width:min(960px,calc(100vw - 2rem));max-height:calc(100vh - 2rem);overflow:auto}
+.operations-board{min-width:0}
+.ops-toolbar,.ops-filters,.ops-cards,.ops-charts,.ops-revenue{display:grid;gap:.65rem}
+.ops-toolbar{grid-template-columns:minmax(0,1fr) auto;align-items:end;margin-bottom:.55rem}
+.ops-filters{grid-template-columns:repeat(4,minmax(0,1fr));align-items:end}
+.ops-filters .field,.ops-toolbar button{margin:0}
+.ops-cards{grid-template-columns:repeat(3,minmax(0,1fr));margin:.75rem 0}
+.ops-card,.ops-charts figure,.ops-revenue>div{min-width:0;margin:0;padding:.75rem;border:1px solid var(--line,#e7dfef);border-radius:.55rem;background:white}
+.ops-card span,.ops-revenue span,.ops-card small{display:block}
+.ops-card strong,.ops-revenue strong{display:block;overflow-wrap:anywhere}
+.ops-card strong{font-size:1.3rem;margin:.15rem 0}
+.ops-card small{font-size:.78rem;color:#5e5769}
+.ops-charts,.ops-revenue{grid-template-columns:repeat(2,minmax(0,1fr))}
+.ops-revenue{grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:.5rem}
+.ops-charts figcaption{font-weight:650}
+.ops-bars{display:flex;align-items:end;gap:2px;height:4rem;margin:.4rem 0;padding-bottom:3px;border-bottom:1px solid var(--line,#e7dfef)}
+.ops-bars span{flex:1;min-width:0;height:max(2px,var(--amount));background:#6841bd;border-radius:2px 2px 0 0}
+.ops-section{padding-top:.7rem;margin-top:.8rem;border-top:1px solid var(--line,#e7dfef)}
+.ops-section h3,.ops-section summary{font-size:1rem;margin:0 0 .4rem;font-weight:700}
+.ops-table{overflow-x:auto;margin:.4rem 0}
+.ops-table table{border-collapse:collapse;width:100%;text-align:left;font-size:.875rem;white-space:nowrap}
+.ops-table :is(th,td){padding:.4rem .55rem;border-bottom:1px solid var(--line,#e7dfef)}
+.ops-table th{background:#f6f1fc}
+.ops-alerts{padding:0;list-style:none}
+.ops-alerts li{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.45rem 0;border-bottom:1px solid var(--line,#e7dfef)}
+.ops-alerts p{overflow-wrap:anywhere}
+#ops-campaign-form .ops-filters{grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:.5rem}
+#ops-campaign-result[hidden]{display:none}
+@media(max-width:710px){
+  .ops-toolbar{grid-template-columns:1fr;justify-items:start}
+  .ops-filters{grid-template-columns:repeat(2,minmax(0,1fr));width:100%}
+  .ops-cards,.ops-revenue{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+.ops-bars{position:relative}
+.ops-bars span{align-self:end;margin-bottom:var(--offset)}

@@ -21,6 +21,13 @@ const blockGroups = {
     counter: ["Counter","#","Count","0"],
     progress: ["Progress bar","◒","Progress","65"]
   },
+  Product: {
+    form: ["Form","▤","Send a message","Name\nEmail\nMessage"],
+    signin: ["Sign-in","◉","Sign in with ChatGPT","Open your account to continue."],
+    records: ["Searchable records","▦","Browse records","Sample record | Example details"],
+    downloads: ["File download","↓","Download sample image","media/forest.jpg"],
+    integration: ["Integration link","↗","Open integration","https://example.com"]
+  },
   Layout: {
     columns: ["Two columns","◫","First column","Second column"],
     divider: ["Divider","━",""],
@@ -37,6 +44,9 @@ const blockFields = {
   button: ["Button label", "External URL (HTTPS, if no page is selected)"], faq: ["Question", "Answer"],
   checklist: ["Heading", "Tasks (one per line)"], counter: ["Label", "Starting number"],
   progress: ["Label", "Percent complete"], columns: ["Left column", "Right column"],
+  form: ["Heading","Field labels, one per line (up to 8)"], signin: ["Button label","Help text"],
+  records: ["Heading","Rows (name | details), one per line"], downloads: ["Button label","Library file path"],
+  integration: ["Button label","Integration URL (HTTPS)"],
   divider: [], spacer: ["Height in pixels (8–120)"]
 };
 const maxBlocks = 30;
@@ -48,6 +58,8 @@ function validBlocks(blocks) {
   return blocks.every((block) => {
     if (!block || !Object.hasOwn(blockTypes, block.type) || typeof block.id !== "string" || !/^[\da-f-]{36}$/i.test(block.id) ||
         ids.has(block.id) || ![block.a,block.b].every((value) => typeof value === "string" && value.length <= maxBlockText)) return false;
+    if (block.imageData !== undefined && (block.type !== "image" || !usableWorkspaceImage(block.imageData))) return false;
+    if ([block.credit,block.license].some(value=>value !== undefined && (typeof value !== "string" || value.length > 160))) return false;
     ids.add(block.id);
     return true;
   });
@@ -64,7 +76,7 @@ function moveBlock(blocks, from, slot) {
   return true;
 }
 function blockURL(value, asset = false) {
-  if (asset && assetByPath.has(value)) return new URL(value, location.href).href;
+  if (asset && assetByPath.has(value)) return new URL("/"+value,location.origin).href;
   try {
     const url = new URL(value);
     return url.protocol === "https:" && !url.username && !url.password ? url.href : "";
@@ -86,7 +98,22 @@ function renderBlock(block, assets = {}, pageIds = new Set()) {
       return '<div><dt>'+esc(label.join("|").trim())+'</dt><dd>'+esc(value.trim())+'</dd></div>';
     }).join("")+'</dl>';
     case "callout": return '<aside class="lp-callout"><h2>'+a+'</h2><p>'+b+'</p></aside>';
-    case "image": return url ? '<img class="lp-media" src="'+(assets[block.b] ? esc(assets[block.b]) : url)+'" alt="'+a+'" loading="lazy">' : '';
+    case "image": {
+      const source = usableWorkspaceImage(block.imageData) ? esc(block.imageData) : assets[block.b] ? esc(assets[block.b]) : url;
+      const credit = [block.credit,block.license].filter(Boolean).map(esc).join(" · ");
+      return source ? '<img class="lp-media" src="'+source+'" alt="'+a+'" loading="lazy">'+(credit ? '<p class="lp-media-credit">'+credit+'</p>' : "") : "";
+    }
+    case "form": {
+      const labels = block.b.split("\n").map(field=>field.trim()).filter(Boolean).slice(0,8).map(field=>field.slice(0,80));
+      return '<h2>'+a+'</h2><form class="lp-product-form" data-product-form="'+esc(block.id)+'">'+labels.map((field,index)=>
+        '<label>'+esc(field)+'<input type="'+(/e-mail|email/i.test(field)?"email":"text")+'" name="field'+index+'" maxlength="1000" required></label>'
+      ).join("")+'<button class="lp-button" type="submit">Send response</button><output role="status"></output></form>';
+    }
+    case "signin": return (b ? '<p>'+b+'</p>' : "")+'<a class="lp-button" data-product-signin href="/signin-with-chatgpt?return_to=%2F" target="_blank" rel="noopener">'+a+'</a>';
+    case "records": return '<h2>'+a+'</h2><div class="lp-product-records"><label>Search records <input type="search" data-record-search></label><ul>'+block.b.split("\n").filter(Boolean).map(row=>
+      '<li data-product-record>'+esc(row.replaceAll("|"," · "))+'</li>').join("")+'</ul><output role="status"></output></div>';
+    case "downloads": return assetByPath.has(block.b) ? '<a class="lp-button" href="'+esc(assets[block.b] || blockURL(block.b,true))+'" download="'+esc(block.b.split("/").at(-1))+'" target="_blank" rel="noopener">'+a+'</a>' : "";
+    case "integration": return url ? '<a class="lp-button" href="'+url+'" target="_blank" rel="noopener noreferrer">'+a+'</a>' : "";
     case "video": case "audio": return url ? '<'+block.type+' class="lp-media" controls preload="none" aria-label="'+a+'" src="'+url+'"></'+block.type+'>' : '';
     case "button": return pageIds.has(block.pageTarget) ? pageAnchor(block.pageTarget,block.a,"lp-button") : url ? '<a class="lp-button" href="'+url+'" target="_blank" rel="noopener noreferrer">'+a+'</a>' : '';
     case "faq": return '<details><summary>'+a+'</summary><p>'+b+'</p></details>';
@@ -124,7 +151,7 @@ const blockProjectCSS = '.lp-block{padding-top:11px;padding-bottom:11px}.lp-bloc
 
 function builder() {
   const shelf = Object.entries(blockGroups).map(([group, types]) => '<div class="tool-group"><h3>'+group+'</h3><div class="tool-grid">'+Object.entries(types).map(([key,[label,glyph]]) => '<button type="button" class="build-tool" draggable="true" data-tool="'+key+'"><span aria-hidden="true">'+glyph+'</span>'+label+'</button>').join("")+'</div></div>').join("");
-  return '<div class="builder"><aside class="panel block-shelf"><h2>Blocks</h2><p class="subtext">Drag a block or select it to add.</p><button class="secondary block-assets" data-action="project-assets">Browse asset library</button>'+shelf+'</aside><section class="panel build-stage"><div class="stage-head"><div><h2>Page layout</h2><p class="subtext">Drag blocks to reorder them.</p></div><span class="tag" id="block-count"></span></div><label class="template-switch"><input id="show-template" type="checkbox" '+(!editingPage().hideTemplate ? 'checked' : '')+'> Show template content</label><div id="block-stage"></div><div id="block-inspector"></div></section></div>';
+  return '<div class="builder"><aside class="panel block-shelf"><h2>Blocks</h2><p class="subtext">Drag a block or select it to add.</p><button class="secondary block-assets" data-action="project-assets">Browse asset library</button> <button class="secondary block-assets" data-action="workspace-media">Upload image</button>'+shelf+'</aside><section class="panel build-stage"><div class="stage-head"><div><h2>Page layout</h2><p class="subtext">Drag blocks to reorder them.</p></div><span class="tag" id="block-count"></span></div><label class="template-switch"><input id="show-template" type="checkbox" '+(!editingPage().hideTemplate ? 'checked' : '')+'> Show template content</label><div id="block-stage"></div><div id="block-inspector"></div></section></div>';
 }
 let selectedBlock = null;
 let draggedBlock = null;
@@ -153,9 +180,9 @@ function renderBlockInspector() {
   const label = blockTypes[block.type][0];
   $("#block-inspector").innerHTML = '<div class="inspector"><div class="stage-head"><h3>Edit '+label.toLowerCase()+'</h3><div class="block-actions"><button class="filter" data-block-action="up" '+(index === 0 ? "disabled" : "")+'>Move up</button><button class="filter" data-block-action="down" '+(index === blocks.length-1 ? "disabled" : "")+'>Move down</button><button class="filter" data-block-action="duplicate">Duplicate</button><button class="filter remove-block" data-block-action="remove">Remove</button></div></div>'+blockFields[block.type].map((name,i) => {
     const key = i === 0 ? "a" : "b";
-    const multi = ["list","stats","callout","quote","text","faq","checklist","columns"].includes(block.type);
+    const multi = ["list","stats","callout","quote","text","faq","checklist","columns","form","records"].includes(block.type) && (i === 1 || !["form","records"].includes(block.type));
     return '<label class="field">'+name+(multi ? '<textarea maxlength="'+maxBlockText+'" data-property="'+key+'">'+esc(block[key])+'</textarea>' : '<input maxlength="'+maxBlockText+'" data-property="'+key+'" value="'+esc(block[key])+'">')+'</label>';
-  }).join("")+(block.type === "button" ? '<label class="field">Open page<select data-property="pageTarget">'+pageOptions(current,block.pageTarget,"Use destination URL")+'</select></label>' : "")+'</div>';
+  }).join("")+(block.type === "image" ? '<button type="button" class="secondary" data-action="workspace-media">Replace image</button>' : "")+(block.type === "button" ? '<label class="field">Open page<select data-property="pageTarget">'+pageOptions(current,block.pageTarget,"Use destination URL")+'</select></label>' : "")+'</div>';
 }
 function handleBuilder() {
   const root = $(".builder");
@@ -165,7 +192,7 @@ function handleBuilder() {
     editingPage().blocks ??= [];
     if (editingPage().blocks.length >= maxBlocks) { toast("This project already has "+maxBlocks+" blocks."); return; }
     const block = newBlock(type);
-    if (copy) { block.a = copy.a; block.b = copy.b; if (copy.pageTarget) block.pageTarget = copy.pageTarget; }
+    if (copy) Object.assign(block,copy,{id:block.id});
     editingPage().blocks.splice(slot,0,block);
     selectedBlock = block.id;
     saveEditor(true);
@@ -195,6 +222,11 @@ function handleBuilder() {
     const block = editingPage().blocks.find((item) => item.id === selectedBlock);
     if (!block) return;
     block[key] = event.target.value;
+    if (block.type === "image" && key === "b") {
+      delete block.imageData;
+      delete block.credit;
+      delete block.license;
+    }
     saveEditor(event.target.tagName === "SELECT");
     const row = root.querySelector(".build-row.selected .row-title > span:last-child");
     row.querySelector("small")?.remove();

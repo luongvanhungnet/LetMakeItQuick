@@ -1,0 +1,28 @@
+.catalog-controls{display:flex;align-items:end;gap:.75rem;flex-wrap:wrap;margin-bottom:.75rem}
+.catalog-controls .search{height:2.5rem;width:min(22rem,100%)}
+.catalog-controls .field{margin:0;min-width:11rem}
+.catalog-controls .filter{min-height:2.5rem}
+.catalog-card-goal{font-weight:700;color:var(--purple)}
+#catalog-result{margin-bottom:.75rem}
+#modal.catalog-wide{width:min(58rem,calc(100% - 2rem));max-height:calc(100dvh - 2rem)}
+.catalog-dialog{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.35fr);gap:1.25rem;margin-top:.75rem}
+.catalog-facts{display:grid;gap:.625rem;margin:1rem 0}
+.catalog-facts dt{font-size:.875rem;font-weight:700}
+.catalog-facts dd{margin:.125rem 0 0;font-size:.925rem;color:var(--muted)}
+.catalog-preview{min-width:0;background:#f9f7ff;border:1px solid var(--line);border-radius:.65rem;padding:.55rem}
+.catalog-demo-heading{display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin:0 .15rem .55rem}
+.catalog-demo-heading label{display:flex;align-items:center;gap:.4rem;font-size:.875rem}
+.catalog-demo-heading select{border:1px solid var(--line);background:white;border-radius:.4rem;padding:.25rem}
+#catalog-live-demo iframe{display:block;width:100%;height:19rem;margin:auto;border:1px solid var(--line);background:#fff;border-radius:.5rem}
+#catalog-live-demo.catalog-mobile-demo iframe{max-width:360px}
+#catalog-live-demo .game-play{max-width:none}
+@media(max-width:680px){.catalog-dialog{grid-template-columns:1fr}.catalog-controls .search{width:100%;max-width:none}#catalog-live-demo iframe{height:min(55dvh,20rem)}}
+#community-body h3{margin:.9rem 0 .5rem}
+.community-list{list-style:none;margin:0;padding:0;display:grid;gap:.45rem}
+.community-list li{display:flex;justify-content:space-between;align-items:start;gap:.7rem;flex-wrap:wrap;border:1px solid var(--line);border-radius:.55rem;padding:.65rem}
+.community-list p,.community-list small{color:var(--muted);margin:.25rem 0}
+.community-actions{display:flex;flex-wrap:wrap;gap:.45rem}
+.community-attest{display:flex;align-items:start;gap:.5rem;font-size:.9rem}
+.community-attest input{margin-top:.2rem}
+
+.community-version{display:flex;align-items:center;gap:.4rem;margin:0}

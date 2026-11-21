@@ -1,0 +1,19 @@
+.commerce-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+.commerce-checkbox{display:flex;align-items:center;gap:8px;margin:9px 0;font-size:.9rem}
+#commerce-listing,.commerce-orders,.commerce-setup{padding-top:16px;margin-top:16px;border-top:1px solid #eceaf4}
+.commerce-setup summary{cursor:pointer;font-weight:650}
+.commerce-setup li{margin-bottom:6px}
+.commerce-table{overflow:auto}
+.commerce-table table{width:100%;border-collapse:collapse;font-size:.86rem}
+.commerce-table th,.commerce-table td{text-align:left;border-bottom:1px solid #eeedf3;padding:8px 7px;white-space:nowrap}
+.commerce-money,.commerce-product-facts{display:flex;flex-wrap:wrap;gap:14px;margin:14px 0}
+.commerce-money div,.commerce-product-facts div{padding:8px 12px;border-radius:8px;background:#f5f1fc}
+.commerce-money dt,.commerce-product-facts dt{color:#5d5277;font-size:.78rem}
+.commerce-money dd,.commerce-product-facts dd{margin:3px 0 0;font-weight:700}
+.commerce-store{max-width:880px;margin:32px auto;padding:0 16px;display:grid;gap:16px}
+.commerce-store.panel{padding:24px}
+.commerce-product h1{margin:12px 0 8px}
+.commerce-product>p{white-space:pre-wrap}
+.commerce-store-order{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid #eceaf4;margin-top:10px;padding-top:8px}
+.commerce-store-order .dialog-actions{margin:0}
+@media(max-width:480px){.commerce-grid{grid-template-columns:1fr}.commerce-store{margin:16px auto}}

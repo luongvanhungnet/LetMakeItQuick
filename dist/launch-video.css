@@ -1,0 +1,7 @@
+.launch-ad-card{margin-top:17px;padding-top:14px;border-top:1px solid var(--line,#e8e2f3)}
+.launch-ad-card h3{margin:0 0 6px}
+.launch-ad-card .subtext{overflow-wrap:anywhere}
+.launch-ad-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+.launch-ad-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.launch-ad-rights{display:flex;align-items:start;gap:7px;margin:8px 0;font-size:14px}
+.launch-ad-rights input{margin-top:3px;accent-color:var(--purple,#643bed)}

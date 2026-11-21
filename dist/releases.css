@@ -1,0 +1,18 @@
+#release-settings { margin-top: 12px; }
+.release-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+#release-checks:not(:empty), #release-stage:not(:empty), #release-history:not(:empty) { padding-top: 12px; border-top: 1px solid var(--line); margin-top: 14px; }
+.release-checklist, .release-versions { list-style: none; padding: 0; font-size: .875rem; }
+.release-checklist li, .release-versions li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.release-checklist li span { flex: 1; }
+.release-block { color: #ad1844; }
+.release-warn { color: #8b5a08; }
+.release-preview-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; padding: 8px; border-bottom: 1px solid var(--line); }
+.release-preview-bar .secondary[aria-pressed="true"] { color: white; background: #43227a; }
+.release-preview-body { min-height: 85vh; }
+.release-preview-body.release-mobile { max-width: 420px; margin: auto; border-inline: 1px solid var(--line); }
+.release-support { display: block; padding: 10px; text-align: center; }
+@media (max-width: 400px) { .release-fields { grid-template-columns: 1fr; } }
+
+.release-versions li { flex-wrap: wrap; }
+.release-versions details { flex-basis: 100%; }
+.release-versions summary { cursor: pointer; }
