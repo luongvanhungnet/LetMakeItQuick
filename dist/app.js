@@ -100,11 +100,12 @@ function editor() {
   const isGame = isGameType(current.type), isVideo = current.type === "video";
   liveVideo?.dispose();
   liveVideo = null;
-  const tabs = [["blocks",isGame ? "Level editor" : "Build"],["settings",isGame ? "Game settings" : "Template content"]].map(([key,label]) =>
+  const tabs = (isVideo ? [["blocks","Timeline"],["chat","AI chat"]] : [["blocks",isGame ? "Level editor" : "Build"],["settings",isGame ? "Game settings" : "Template content"],["chat","AI chat"]]).map(([key,label]) =>
     '<button class="filter '+(key === editorMode ? "active" : "")+'" aria-pressed="'+(key === editorMode)+'" data-action="editor-mode" data-id="'+key+'">'+label+'</button>').join("");
-  view.innerHTML = '<div class="editor-bar"><div><button class="secondary" data-action="projects">My projects</button><span class="save-note" id="save-note">Saved on this device</span></div><div>'+(isVideo ? '<button class="secondary" data-action="export-video">Export video</button>' : '<button class="secondary" data-action="ai-edit">'+icon("spark")+' AI edit</button><button class="secondary" data-action="download">Download HTML</button>')+'<button class="primary" data-action="publish">Publish</button></div></div><div class="project-heading"><h1 class="page-title">'+esc(current.name || "Untitled project")+'</h1><span class="tag">'+typeLabel(current.type)+'</span></div>'+(isVideo ? '' : '<nav class="filters editor-tabs" aria-label="Editor views">'+tabs+'</nav>')+'<div class="editor-workspace"><div id="editor-body"></div>'+livePreviewMarkup(isGame,isVideo)+'</div>';
+  view.innerHTML = '<div class="editor-bar"><div><button class="secondary" data-action="projects">My projects</button><span class="save-note" id="save-note">Saved on this device</span></div><div>'+(isVideo ? '<button class="secondary" data-action="export-video">Export video</button>' : '<button class="secondary" data-action="download">Download HTML</button>')+'<button class="primary" data-action="publish">Publish</button></div></div><div class="project-heading"><h1 class="page-title">'+esc(current.name || "Untitled project")+'</h1><span class="tag">'+typeLabel(current.type)+'</span></div>'+'<nav class="filters editor-tabs" aria-label="Editor views">'+tabs+'</nav>'+'<div class="editor-workspace"><div id="editor-body"></div>'+livePreviewMarkup(isGame,isVideo)+'</div>';
   const body = $("#editor-body");
-  if (isVideo) videoEditor();
+  if (editorMode === "chat") renderAIEditor();
+  else if (isVideo) videoEditor();
   else if (editorMode === "blocks") {
     if (isGame) gameEditor();
     else { body.innerHTML = builder(); handleBuilder(); }
@@ -317,7 +318,7 @@ async function download() {
 }
 const actions = {
   templates: () => go("templates"), projects: () => go("projects"), close: () => modal.close(),
-  "ai-create": () => openAI(), "ai-edit": () => openAI(current),
+  "ai-create": () => openAI(),
   new: () => openDialog("New project",'<p class="subtext">Choose a template or start with a blank project.</p><div class="dialog-actions"><button class="primary" data-action="ai-create">Create with AI</button><button class="secondary" data-action="browse">Browse templates</button><button class="secondary" data-action="blank" data-id="web">Blank website</button><button class="secondary" data-action="blank" data-id="app">Blank mobile app</button><button class="secondary" data-action="blank" data-id="game">Blank 2D game</button><button class="secondary" data-action="blank" data-id="game3d">Blank 3D game</button><button class="secondary" data-action="blank" data-id="video">Blank video</button></div>'),
   browse: () => { modal.close(); filter = "all"; query = ""; go("templates"); },
   blank: (id) => setup(blank(id)), pick: (id) => setup([...templates,...gameTemplates,...game3DTemplates,...videoTemplates].find((t) => t.id === id)),
@@ -327,7 +328,7 @@ const actions = {
     renderCards();
   },
   open: (id) => { current = projects.find((p) => p.id === id); phone = current.type === "app"; editorMode = "blocks"; selectedBlock = null; selectedScene = 0; gameTool = "lilac-explorer"; go("editor"); },
-  "editor-mode": (mode) => { editorMode = mode; editor(); },
+  "editor-mode": (mode) => { editorMode = mode; editor(); if (mode === "chat") $("#chat-form textarea").focus(); },
   desktop: () => setPreviewDevice(false), mobile: () => setPreviewDevice(true),
   "focus-game": focusGame,
   publish, download, "export-video": exportVideo,
