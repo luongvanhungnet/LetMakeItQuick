@@ -1,0 +1,9 @@
+.video-transport{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0}
+.video-transport input{flex:1;min-width:70px;accent-color:var(--purple,#643bed)}
+.video-transport output,.video-media-status{font-size:13px;color:var(--muted,#655977)}
+.video-transport output{white-space:nowrap}
+.video-media-status:empty{display:none}
+.video-player canvas{display:block;width:100%;height:auto;max-height:68dvh;object-fit:contain;background:#160f28;border-radius:8px}
+.published-video{max-width:1050px;margin:auto;padding:20px}
+.published-video h1{margin-bottom:10px;overflow-wrap:anywhere}
+.published-video canvas{max-height:79dvh}

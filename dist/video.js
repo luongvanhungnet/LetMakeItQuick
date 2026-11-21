@@ -47,7 +47,7 @@ function videoClock(seconds) {
   const whole = Math.floor(seconds);
   return Math.floor(whole/60)+":"+String(whole%60).padStart(2,"0");
 }
-function drawVideoFrame(canvas,scene,source,elapsed) {
+function drawVideoFrame(canvas,scene,source,elapsed,overlays) {
   const context = canvas.getContext("2d");
   const {width,height} = canvas;
   context.fillStyle = scene.color;
@@ -62,32 +62,44 @@ function drawVideoFrame(canvas,scene,source,elapsed) {
     context.fillStyle = shade;
     context.fillRect(0,0,width,height);
   }
-  const unit = Math.min(width,height), lower = scene.layout === "lower", x = lower ? width*.1 : width/2;
-  context.textAlign = lower ? "left" : "center";
-  context.textBaseline = "middle";
-  context.fillStyle = "#fff";
-  context.shadowColor = "#10091aaa";
-  context.shadowBlur = 8;
-  function lines(text,size,weight,top) {
-    if (!text.trim()) return 0;
-    context.font = weight+" "+size+"px system-ui, sans-serif";
-    const maxWidth = width*.8;
-    let line = "", count = 0;
-    for (const word of text.trim().split(/\s+/)) {
-      const next = line ? line+" "+word : word;
-      if (line && context.measureText(next).width > maxWidth) {
-        context.fillText(line,x,top+count*size*1.15,maxWidth);
-        count++;
-        line = word;
-      } else line = next;
+  function drawText(paint) {
+    const unit = Math.min(width,height), lower = scene.layout === "lower", x = lower ? width*.1 : width/2;
+    paint.textAlign = lower ? "left" : "center";
+    paint.textBaseline = "middle";
+    paint.fillStyle = "#fff";
+    paint.shadowColor = "#10091aaa";
+    paint.shadowBlur = 8;
+    function lines(text,size,weight,top) {
+      if (!text.trim()) return 0;
+      paint.font = weight+" "+size+"px system-ui, sans-serif";
+      const maxWidth = width*.8;
+      let line = "", count = 0;
+      for (const word of text.trim().split(/\s+/)) {
+        const next = line ? line+" "+word : word;
+        if (line && paint.measureText(next).width > maxWidth) {
+          paint.fillText(line,x,top+count*size*1.15,maxWidth);
+          count++;
+          line = word;
+        } else line = next;
+      }
+      if (line) paint.fillText(line,x,top+count*size*1.15,maxWidth);
+      return count+1;
     }
-    if (line) context.fillText(line,x,top+count*size*1.15,maxWidth);
-    return count+1;
+    const y = lower ? height*.64 : height*.42;
+    const used = lines(scene.title,unit*.065,700,y);
+    lines(scene.caption,unit*.035,500,y+Math.max(1,used)*unit*.083);
+    paint.shadowBlur = 0;
   }
-  const y = lower ? height*.64 : height*.42;
-  const used = lines(scene.title,unit*.065,700,y);
-  lines(scene.caption,unit*.035,500,y+Math.max(1,used)*unit*.083);
-  context.shadowBlur = 0;
+  if (overlays) {
+    if (!overlays.has(scene)) {
+      const overlay = document.createElement("canvas");
+      overlay.width = width;
+      overlay.height = height;
+      drawText(overlay.getContext("2d"));
+      overlays.set(scene,overlay);
+    }
+    context.drawImage(overlays.get(scene),0,0);
+  } else drawText(context);
   if (scene.transition === "fade") {
     const edge = Math.min(.35,scene.duration/3);
     context.globalAlpha = 1-Math.max(0,Math.min(1,elapsed/edge,(scene.duration-elapsed)/edge));
@@ -96,11 +108,32 @@ function drawVideoFrame(canvas,scene,source,elapsed) {
     context.globalAlpha = 1;
   }
 }
-function videoRenderer(canvas,onMedia) {
+function waitForMedia(source,event,signal,ready) {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  if (ready()) return Promise.resolve();
+  return new Promise((resolve,reject) => {
+    const listeners = new AbortController();
+    const options = {once:true,signal:listeners.signal};
+    const finish = error => {
+      clearTimeout(timer);
+      listeners.abort();
+      if (error) reject(error);
+      else resolve();
+    };
+    const timer = setTimeout(() => finish(Error("A scene asset took too long to load.")),10000);
+    signal.addEventListener("abort",() => finish(signal.reason),options);
+    source.addEventListener(event,() => finish(),options);
+    source.addEventListener("error",() => finish(Error("A scene asset could not load.")),options);
+    if (source.error || (source.tagName === "IMG" && source.complete && !source.naturalWidth)) {
+      finish(Error("A scene asset could not load."));
+    }
+  });
+}
+function videoRenderer(canvas,onMedia,assets,overlays) {
   const sources = new Map();
   let active = null, disposed = false;
   function sourceFor(scene,index) {
-    const key = index+":"+scene.asset, asset = videoAssets.get(scene.asset);
+    const key = index+":"+scene.asset, asset = assets.get(scene.asset);
     if (!asset) return null;
     if (sources.has(key)) return sources.get(key);
     const source = asset.poster ? document.createElement("video") : new Image();
@@ -116,8 +149,16 @@ function videoRenderer(canvas,onMedia) {
     return source;
   }
   function pause() { active?.pause(); }
+  function release(key,source) {
+    if (source.tagName === "VIDEO") {
+      source.pause();
+      source.removeAttribute("src");
+      source.load();
+    }
+    sources.delete(key);
+  }
   return {
-    draw(video,time,playing) {
+    draw(video,time,playing,transitions=playing) {
       if (disposed) return;
       const {index,elapsed} = videoPosition(video,time);
       const scene = video.scenes[index];
@@ -126,21 +167,30 @@ function videoRenderer(canvas,onMedia) {
       if (active !== clip) pause();
       active = clip;
       if (clip && clip.readyState >= 2 && !clip.seeking) {
-        const target = Math.min(clip.duration-.04,scene.trim+elapsed);
-        if (Math.abs(clip.currentTime-target) > (playing ? .22 : .045)) clip.currentTime = target;
+        const target = Math.max(0,Math.min(clip.duration-.04,scene.trim+elapsed));
+        if (Math.abs(clip.currentTime-target) > (playing ? .30 : .045)) clip.currentTime = target;
         if (playing && clip.paused && elapsed < scene.duration) clip.play().catch(() => {});
       }
-      drawVideoFrame(canvas,scene,source,playing ? elapsed : Math.max(.36,Math.min(elapsed,scene.duration-.36)));
+      drawVideoFrame(canvas,scene,source,transitions ? elapsed : Math.max(.36,Math.min(elapsed,scene.duration-.36)),overlays);
     },
-    preload(video) {
-      return Promise.all(video.scenes.map((scene,index) => {
+    retain(video) {
+      const keys = new Set(video.scenes.map((scene,index)=>index+":"+scene.asset));
+      for (const [key,source] of sources) if (!keys.has(key)) release(key,source);
+    },
+    preload(video,signal,position=0) {
+      const start = videoPosition(video,position);
+      return Promise.all(video.scenes.map(async (scene,index) => {
         const source = sourceFor(scene,index);
-        if (!source || (source.tagName === "VIDEO" ? source.readyState >= 2 : source.complete && source.naturalWidth)) return;
-        return new Promise((resolve,reject) => {
-          const timer = setTimeout(() => reject(Error("A scene asset did not load.")),10000);
-          source.addEventListener(source.tagName === "VIDEO" ? "loadeddata" : "load",() => { clearTimeout(timer); resolve(); },{once:true});
-          source.addEventListener("error",() => { clearTimeout(timer); reject(Error("A scene asset could not load.")); },{once:true});
-        });
+        if (!source) return;
+        if (source.tagName !== "VIDEO") {
+          await waitForMedia(source,"load",signal,()=>source.complete && source.naturalWidth);
+          return;
+        }
+        await waitForMedia(source,"loadeddata",signal,()=>source.readyState >= 2);
+        let target = scene.trim + (index === start.index ? start.elapsed : 0);
+        target = Math.max(0,Math.min(source.duration-.04,target));
+        if (Math.abs(source.currentTime-target) > .01) source.currentTime = target;
+        await waitForMedia(source,"seeked",signal,()=>!source.seeking);
       }));
     },
     pause,
@@ -148,22 +198,24 @@ function videoRenderer(canvas,onMedia) {
       if (disposed) return;
       disposed = true;
       pause();
-      for (const source of sources.values()) if (source.tagName === "VIDEO") { source.removeAttribute("src"); source.load(); }
-      sources.clear();
+      for (const [key,source] of sources) release(key,source);
     }
   };
 }
-function mountVideo(root,initial) {
-  root.innerHTML = '<div class="video-player"><canvas aria-label="Video preview"></canvas><div class="video-transport"><button type="button" class="secondary">Play</button><input type="range" min="0" value="0" step="0.01" aria-label="Playback position"><output></output></div></div>';
+function mountVideo(root,initial,assets=videoAssets) {
+  root.innerHTML = '<div class="video-player"><canvas aria-label="Video preview"></canvas><div class="video-transport"><button type="button" class="secondary">Play</button><input type="range" min="0" value="0" step="0.01" aria-label="Playback position"><output></output></div><p class="video-media-status" role="status"></p></div>';
   const canvas = root.querySelector("canvas"), play = root.querySelector("button"), scrub = root.querySelector("input"), clock = root.querySelector("output");
-  let video = initial, position = 0, playing = false, frame, last;
-  const renderer = videoRenderer(canvas,() => { if (!playing) render(); });
+  const status = root.querySelector(".video-media-status");
+  let video = initial, position = 0, playing = false, frame, last, preparing;
+  const renderer = videoRenderer(canvas,() => { if (!playing && !preparing) render(); },assets);
   function render() {
     renderer.draw(video,position,playing);
     scrub.value = position;
     clock.textContent = videoClock(position)+" / "+videoClock(videoDuration(video));
   }
   function pause() {
+    preparing?.abort();
+    preparing = null;
     playing = false;
     cancelAnimationFrame(frame);
     renderer.pause();
@@ -177,19 +229,34 @@ function mountVideo(root,initial) {
     if (position >= videoDuration(video)) pause();
     else frame = requestAnimationFrame(tick);
   }
-  play.addEventListener("click",() => {
-    if (playing) { pause(); render(); return; }
+  play.addEventListener("click",async () => {
+    if (playing || preparing) { pause(); status.textContent = ""; render(); return; }
     if (position >= videoDuration(video)) position = 0;
-    last = performance.now();
-    playing = true;
-    play.textContent = "Pause";
-    render();
-    frame = requestAnimationFrame(tick);
+    const controller = preparing = new AbortController();
+    play.textContent = "Cancel";
+    status.textContent = "Loading scenes…";
+    try {
+      await renderer.preload(video,controller.signal,position);
+      if (controller.signal.aborted) return;
+      preparing = null;
+      status.textContent = "";
+      last = performance.now();
+      playing = true;
+      play.textContent = "Pause";
+      render();
+      frame = requestAnimationFrame(tick);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      pause();
+      status.textContent = error.message;
+    }
   });
-  scrub.addEventListener("input",() => { pause(); position = Number(scrub.value); render(); });
+  scrub.addEventListener("input",() => { pause(); status.textContent = ""; position = Number(scrub.value); render(); });
   function update(next,index) {
     pause();
     video = next;
+    status.textContent = "";
+    renderer.retain(video);
     const [width,height] = videoFormats[video.format];
     if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
     scrub.max = videoDuration(video);
@@ -198,6 +265,27 @@ function mountVideo(root,initial) {
   }
   update(initial,0);
   return {update,dispose() { pause(); renderer.dispose(); }};
+}
+
+function videoHTML(project,embedded,css) {
+  const assets = new Map();
+  for (const {asset:id} of project.video.scenes) {
+    const asset = videoAssets.get(id);
+    if (asset) assets.set(id,{path:embedded[asset.path],poster:!!asset.poster});
+  }
+  const {format,scenes} = project.video;
+  const video = {format,scenes:scenes.map(({asset,title,caption,duration,trim,layout,transition,color}) =>
+    ({asset,title,caption,duration,trim,layout,transition,color}))};
+  const json = data => JSON.stringify(data).replaceAll("<","\\u003c");
+  const helpers = [videoDuration,videoPosition,videoClock,drawVideoFrame,waitForMedia,videoRenderer,mountVideo];
+  const script = helpers.map(helper=>helper.toString()).join("\n")+
+    '\nconst videoFormats='+json(videoFormats)+';mountVideo(document.querySelector("#player"),'+json(video)+
+    ',new Map('+json([...assets])+'));';
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
+    '<title>'+esc(project.name)+'</title><style>body{margin:0;background:#faf9fc;color:#201b29;font-family:system-ui,sans-serif}'+
+    '.video-transport button{font:inherit;padding:6px 12px;background:white;border:1px solid #dfd6ed;border-radius:7px}'+css+
+    '</style></head><body><main class="published-video"><h1>'+esc(project.name)+'</h1><div id="player"></div></main>'+
+    '<script>'+script+'</script></body></html>';
 }
 
 let selectedScene = 0;
@@ -292,53 +380,115 @@ function videoEditor() {
   });
 }
 
-function recordVideo(canvas,video,renderer,mime,onProgress,signal) {
-  const stream = canvas.captureStream(30);
+function recordVideo(canvas,video,renderer,candidates,onProgress,signal) {
+  const frameRate = 24;
+  const generated = window.MediaStreamTrackGenerator && window.VideoFrame
+    ? new MediaStreamTrackGenerator({kind:"video"}) : null;
+  const writer = generated?.writable.getWriter();
+  const manual = typeof window.CanvasCaptureMediaStreamTrack?.prototype.requestFrame === "function";
+  const stream = generated ? new MediaStream([generated]) : canvas.captureStream(manual ? 0 : frameRate);
+  const [track] = stream.getVideoTracks();
+  function releaseTrack() {
+    track.stop();
+    if (writer) void writer.abort().catch(() => {});
+  }
   let recorder;
-  try { recorder = mime ? new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:3200000}) : new MediaRecorder(stream); }
-  catch (error) { stream.getTracks().forEach(track => track.stop()); throw error; }
+  for (const mimeType of candidates) {
+    try {
+      const candidate = new MediaRecorder(stream,{mimeType,videoBitsPerSecond:3200000});
+      candidate.start();
+      recorder = candidate;
+      break;
+    } catch {}
+  }
+  if (!recorder) {
+    releaseTrack();
+    throw Error("Recording could not start in this browser.");
+  }
   return new Promise((resolve,reject) => {
-    let frame, failure, first, started = false;
-    const chunks = [], duration = videoDuration(video);
-    const abort = () => finish(Error("Export canceled."));
-    function cleanup() {
-      cancelAnimationFrame(frame);
-      renderer.dispose();
-      stream.getTracks().forEach(track => track.stop());
-      signal.removeEventListener("abort",abort);
-    }
+    const duration = videoDuration(video), chunks = [];
+    let frame, drain, first, lastFrame = -1, failure;
+    const listeners = new AbortController();
+    const options = {signal:listeners.signal};
     function finish(error) {
       failure ||= error;
       cancelAnimationFrame(frame);
+      clearTimeout(drain);
       if (recorder.state !== "inactive") recorder.stop();
-      else if (!started) { cleanup(); reject(failure || Error("Recording could not start.")); }
     }
-    recorder.addEventListener("dataavailable",(event) => { if (event.data.size) chunks.push(event.data); });
-    recorder.addEventListener("error",() => finish(Error("Recording failed in this browser.")));
-    recorder.addEventListener("stop",() => {
-      cleanup();
-      if (failure || !chunks.length) reject(failure || Error("Recording produced an empty video."));
-      else resolve(new Blob(chunks,{type:recorder.mimeType || mime || "video/webm"}));
-    },{once:true});
-    signal.addEventListener("abort",abort,{once:true});
-    function tick(now) {
-      const time = Math.min(duration,(now-first)/1000);
+    async function draw(time,playing) {
+      renderer.draw(video,time,playing,true);
+      if (writer) {
+        const frame = new VideoFrame(canvas,{timestamp:Math.round(performance.now()*1000)});
+        try { await writer.write(frame); }
+        finally { frame.close(); }
+      } else if (manual) track.requestFrame();
+    }
+    async function tick(now) {
       try {
-        renderer.draw(video,time,true);
-        onProgress(time/duration);
-        if (time >= duration) finish();
-        else frame = requestAnimationFrame(tick);
+        first ??= now;
+        const time = Math.min(duration,(now-first)/1000);
+        const index = Math.floor(time*frameRate);
+        if (index !== lastFrame || time === duration) {
+          lastFrame = index;
+          await draw(time,time < duration);
+          if (recorder.state === "inactive") return;
+          onProgress(time/duration);
+        }
+        if (time < duration) frame = requestAnimationFrame(tick);
+        else {
+          renderer.pause();
+          // Feed the final frame while the encoder catches up before closing the container.
+          const tail = performance.now();
+          async function drainEncoder() {
+            try {
+              if (recorder.state === "inactive") return;
+              if (performance.now()-tail >= 225) { finish(); return; }
+              await draw(duration,false);
+              if (recorder.state !== "inactive") drain = setTimeout(drainEncoder,50);
+            } catch { finish(Error("The last video frame could not be recorded.")); }
+          }
+          drain = setTimeout(drainEncoder,50);
+        }
       } catch { finish(Error("A video frame could not be rendered.")); }
     }
-    try {
-      if (signal.aborted) { abort(); return; }
-      renderer.draw(video,0,true);
-      recorder.start();
-      started = true;
-      first = performance.now();
-      frame = requestAnimationFrame(tick);
-    } catch { finish(Error("Recording could not start in this browser.")); }
+    recorder.addEventListener("dataavailable",event=>{ if (event.data.size) chunks.push(event.data); },options);
+    recorder.addEventListener("error",()=>finish(Error("Recording failed in this browser.")),options);
+    recorder.addEventListener("stop",()=>{
+      finish();
+      listeners.abort();
+      releaseTrack();
+      if (failure || !chunks.length) reject(failure || Error("Recording produced an empty video."));
+      else resolve(new Blob(chunks,{type:chunks[0].type || recorder.mimeType}));
+    },{...options,once:true});
+    signal.addEventListener("abort",()=>finish(Error("Export canceled.")),options);
+    function verifyVisibility() {
+      if (document.hidden) finish(Error("Keep this tab visible while exporting. Start a new export to try again."));
+    }
+    document.addEventListener("visibilitychange",verifyVisibility,options);
+    if (signal.aborted) finish(Error("Export canceled."));
+    else if (document.hidden) verifyVisibility();
+    else {
+      draw(0,false).then(()=>{
+        if (recorder.state !== "inactive") frame = requestAnimationFrame(tick);
+      }).catch(()=>finish(Error("A video frame could not be rendered.")));
+    }
   });
+}
+async function checkRecording(url,duration,signal) {
+  const probe = document.createElement("video");
+  probe.preload = "metadata";
+  probe.src = url;
+  try {
+    await waitForMedia(probe,"loadedmetadata",signal,()=>probe.readyState >= 1);
+    if (!probe.videoWidth || !Number.isFinite(probe.duration)) throw Error("The browser could not play the recording.");
+    if (probe.duration < duration-.24 || probe.duration > duration+.45) {
+      throw Error("The browser recorded "+probe.duration.toFixed(2)+" seconds of a "+duration+"-second timeline. Try exporting again.");
+    }
+  } finally {
+    probe.removeAttribute("src");
+    probe.load();
+  }
 }
 async function exportVideo() {
   if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) {
@@ -353,26 +503,51 @@ async function exportVideo() {
   modal.addEventListener("close",cancel,{once:true});
   const canvas = document.createElement("canvas");
   [canvas.width,canvas.height] = videoFormats[video.format];
-  const renderer = videoRenderer(canvas,() => {});
+  canvas.getContext("2d",{alpha:false});
+  const renderer = videoRenderer(canvas,() => {},videoAssets,new WeakMap());
+  let downloadURL;
   try {
-    await renderer.preload(video);
+    const supports = type => MediaRecorder.isTypeSupported?.(type);
+    const mp4 = ["video/mp4;codecs=vp09.00.31.08","video/mp4"].filter(supports);
+    const webm = ["video/webm;codecs=vp8","video/webm"].filter(supports);
+    const formats = [mp4,webm].filter(format=>format.length);
+    if (!formats.length) formats.push([undefined]);
+    let blob;
+    for (const [index,format] of formats.entries()) {
+      await renderer.preload(video,controller.signal);
+      if (controller.signal.aborted) return;
+      status.textContent = index ? "Rendering WebM fallback…" : "Rendering video…";
+      progress.value = 0;
+      try {
+        blob = await recordVideo(canvas,video,renderer,format,(ratio) => { progress.value = ratio; },controller.signal);
+        if (controller.signal.aborted) return;
+        status.textContent = "Checking recorded video…";
+        downloadURL = URL.createObjectURL(blob);
+        await checkRecording(downloadURL,videoDuration(video),controller.signal);
+        break;
+      } catch (error) {
+        if (controller.signal.aborted || document.hidden || index === formats.length-1) throw error;
+        if (downloadURL) URL.revokeObjectURL(downloadURL);
+        downloadURL = null;
+        renderer.pause();
+      }
+    }
     if (controller.signal.aborted) return;
-    const mime = ["video/mp4","video/webm;codecs=vp8","video/webm"].find((type) => MediaRecorder.isTypeSupported?.(type));
-    status.textContent = "Rendering video…";
-    const blob = await recordVideo(canvas,video,renderer,mime,(ratio) => { progress.value = ratio; },controller.signal);
-    if (controller.signal.aborted) return;
-    const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.href = url;
+    link.href = downloadURL;
     link.download = (project.name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"") || "video") + (blob.type.includes("mp4") ? ".mp4" : ".webm");
     link.click();
-    setTimeout(() => URL.revokeObjectURL(url),30000);
+    const exportedURL = downloadURL;
+    setTimeout(() => URL.revokeObjectURL(exportedURL),30000);
+    downloadURL = null;
     modal.close();
     toast("Video exported.");
   } catch (error) {
     if (!controller.signal.aborted) status.textContent = error.message;
   } finally {
     modal.removeEventListener("close",cancel);
+    if (downloadURL) URL.revokeObjectURL(downloadURL);
+    controller.abort();
     renderer.dispose();
   }
 }

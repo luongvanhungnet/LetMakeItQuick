@@ -26,7 +26,6 @@ const blank = (type) => ({id:"blank",type,name:"Untitled project",title:"Welcome
 const templateFor = (item) => templates.find((template) => template.id === item.template && template.type === item.type);
 const storageKey = "launchpad-projects-v1";
 let projects = [];
-try { projects = JSON.parse(localStorage.getItem(storageKey) || "[]"); } catch {}
 let page = "templates", filter = "all", query = "", current, phone = false, timer;
 const view = $("#view"), modal = $("#modal");
 function toast(message) {
@@ -57,11 +56,15 @@ function projectList() {
   view.innerHTML = '<div class="editor-bar"><div><h1 class="page-title">My projects</h1></div><button class="primary" data-action="new">'+icon("plus")+' New project</button></div>' +
     (projects.length ? '<div class="grid">'+projects.map((p) => '<button class="card project-card" data-action="open" data-id="'+esc(p.id)+'"><h3>'+esc(p.name)+'</h3><p class="subtext">'+(p.link ? "Published snapshot" : "Draft")+'</p><span class="tag '+p.type+'">'+typeLabel(p.type)+'</span></button>').join("")+'</div>' : '<div class="empty"><p>Your projects will appear here.</p><button class="primary" data-action="templates">Browse templates</button></div>');
 }
-function go(next) {
+function disposeEditorPreview() {
   stopPlaytest();
+  stopPlaytest = () => {};
   liveVideo?.dispose();
   liveVideo = null;
   clearTimeout(previewUpdate);
+}
+function go(next) {
+  disposeEditorPreview();
   page = next;
   $("#crumb").textContent = next === "templates" ? "Templates" : next === "projects" ? "My projects" : "Project editor";
   document.querySelectorAll(".sidebar nav button").forEach((button) => {
@@ -97,14 +100,12 @@ let editorMode = "blocks";
 let stopPlaytest = () => {}, stopPublishedGame = () => {};
 let liveVideo = null;
 function editor() {
-  stopPlaytest();
+  disposeEditorPreview();
   const isGame = isGameType(current.type), isVideo = current.type === "video";
   if (supportsPages(current.type) && editingPage() === current) selectedPage = homePage;
-  liveVideo?.dispose();
-  liveVideo = null;
   const tabs = (isVideo ? [["blocks","Timeline"],["chat","AI chat"]] : [["blocks",isGame ? "Level editor" : "Build"],["settings",isGame ? "Game settings" : "Page content"],["chat","AI chat"]]).map(([key,label]) =>
     '<button class="filter '+(key === editorMode ? "active" : "")+'" aria-pressed="'+(key === editorMode)+'" data-action="editor-mode" data-id="'+key+'">'+label+'</button>').join("");
-  view.innerHTML = '<div class="editor-bar"><div><button class="secondary" data-action="projects">My projects</button><span class="save-note" id="save-note">Saved on this device</span></div><div>'+(isVideo ? '<button class="secondary" data-action="export-video">Export video</button>' : '<button class="secondary" data-action="download">Download HTML</button>')+'<button class="primary" data-action="publish">Publish</button></div></div><div class="project-heading"><h1 class="page-title">'+esc(current.name || "Untitled project")+'</h1><span class="tag">'+typeLabel(current.type)+'</span></div>'+'<nav class="filters editor-tabs" aria-label="Editor views">'+tabs+'</nav>'+(supportsPages(current.type) && editorMode !== "chat" ? pageControls(current) : '')+'<div class="editor-workspace"><div id="editor-body"></div>'+livePreviewMarkup(isGame,isVideo)+'</div>';
+  view.innerHTML = '<div class="editor-bar"><div><button class="secondary" data-action="projects">My projects</button><span class="save-note" id="save-note">Saved on this device</span></div><div>'+(isVideo ? '<button class="secondary" data-action="export-video">Export video</button>' : '')+'<button class="secondary" data-action="download">Download HTML</button>'+'<button class="primary" data-action="publish">Publish</button></div></div><div class="project-heading"><h1 class="page-title">'+esc(current.name || "Untitled project")+'</h1><span class="tag">'+typeLabel(current.type)+'</span></div>'+'<nav class="filters editor-tabs" aria-label="Editor views">'+tabs+'</nav>'+(supportsPages(current.type) && editorMode !== "chat" ? pageControls(current) : '')+'<div class="editor-workspace"><div id="editor-body"></div>'+livePreviewMarkup(isGame,isVideo)+'</div>';
   $("#page-select")?.addEventListener("change",event=>{
     selectedPage = event.target.value;
     selectedBlock = null;
@@ -126,7 +127,7 @@ function editor() {
     $("#fields").addEventListener("input",event=>{
       content[event.target.name] = event.target.value;
       $(".project-heading h1").textContent = current.name || "Untitled project";
-      saveEditor();
+      saveEditor(event.target.tagName === "SELECT");
     });
   }
   refreshPreview();
@@ -153,7 +154,12 @@ function refreshPreview() {
     stopPlaytest = mountGame(game,current);
   } else {
     const frame = $("#preview");
-    if (frame) frame.srcdoc = projectHTML(current,undefined,undefined,editorMode === "chat" ? homePage : selectedPage);
+    if (!frame) return;
+    const html = projectHTML(current,undefined,undefined,editorMode === "chat" ? homePage : selectedPage);
+    if (frame.srcdoc === html) return;
+    const next = frame.cloneNode(false);
+    next.srcdoc = html;
+    frame.replaceWith(next);
   }
 }
 function schedulePreview() {
@@ -175,7 +181,7 @@ function setPreviewDevice(mobile) {
     button?.setAttribute("aria-pressed",String(active));
   }
 }
-function projectHTML(p,imageOverride,assets,start = homePage) {
+function projectHTML(p,imageOverride,assets,start = homePage,checklists) {
   const color = /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : "#643bed";
   const image = templateFor(p)?.image;
   const picture = imageOverride || (image ? new URL("media/"+image,location.href).href : "");
@@ -191,38 +197,53 @@ function projectHTML(p,imageOverride,assets,start = homePage) {
       ? pageAnchor(content.buttonTarget,content.button,"cta")
       : '<a class="cta" href="#content" data-scroll-content>'+esc(content.button)+'</a>') : "";
     const details = isApp ? '<div data-base-checklist><div class="progress"><strong data-count></strong><button data-reset type="button">Reset</button></div><div class="tasks">'+content.details.split("\n").filter(line=>line.trim()).map(line => '<label><input type="checkbox"><span>'+esc(line)+'</span></label>').join("")+'</div></div>' : '<p class="details">'+esc(content.details)+'</p>';
-    const base = content.hideTemplate ? "" : '<div class="intro '+(photo?"with-photo":"")+'"><div><h1 tabindex="-1">'+esc(content.title)+'</h1><p>'+esc(content.intro)+'</p>'+mainButton+'</div>'+(photo ? '<img src="'+esc(photo)+'" alt="">' : '')+'</div><section data-page-content'+(id === homePage ? ' id="content"' : "")+'><h2>'+esc(content.section)+'</h2>'+details+'</section>';
+    const base = content.hideTemplate === true ? "" : '<div class="intro '+(photo?"with-photo":"")+'"><div><h1 tabindex="-1">'+esc(content.title)+'</h1><p>'+esc(content.intro)+'</p>'+mainButton+'</div>'+(photo ? '<img src="'+esc(photo)+'" alt="">' : '')+'</div><section data-page-content'+(id === homePage ? ' id="content"' : "")+'><h2>'+esc(content.section)+'</h2>'+details+'</section>';
     const blocks = (content.blocks || []).map(block=>'<section class="lp-block">'+renderBlock(block,assets,ids)+'</section>').join("");
     return '<div tabindex="-1" data-project-page="'+esc(id)+'" style="--accent:'+localColor+'" '+(id === active ? "" : "hidden")+'>'+base+blocks+'</div>';
   }).join("");
-  const script = '('+runPageNavigation.toString()+')();'+(isApp ? '('+runPageChecklists.toString()+')();' : "")+'('+blockInteraction.toString()+')();';
+  const script = 'const checks=('+projectChecklistStore.toString()+')();('+runPageNavigation.toString()+')();'+
+    (isApp ? '('+runPageChecklists.toString()+')(checks);' : "")+'('+blockInteraction.toString()+')(checks);';
+  const storage = checklists ? ' data-checklist-state="'+esc(JSON.stringify(checklists))+'"' : "";
   const navCSS = 'header nav{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:8px}header nav a{text-decoration:none;font-size:14px}header nav a[aria-current=page]{font-weight:750;text-decoration:underline;text-underline-offset:4px}[data-project-page][hidden]{display:none}';
-  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(p.name)+'</title><style>'+projectCSS(color)+blockProjectCSS+navCSS+'</style></head><body class="'+(isApp?"app":"website")+'"><main><header><strong>'+esc(p.name)+'</strong>'+navigation+'</header>'+markup+'</main><script>'+script+'</script></body></html>';
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(p.name)+'</title><style>'+projectCSS(color)+blockProjectCSS+navCSS+'</style></head><body class="'+(isApp?"app":"website")+'"'+storage+'><main><header><strong>'+esc(p.name)+'</strong>'+navigation+'</header>'+markup+'</main><script>'+script+'</script></body></html>';
 }
 function projectCSS(color) {
   return ':root{--accent:'+color+';font-family:system-ui,sans-serif;color:#201b29;background:#faf9fc}*{box-sizing:border-box}body{margin:0}main{max-width:1240px;margin:auto}header{padding:19px clamp(18px,5vw,56px);background:white;border-bottom:1px solid #eae5ef;font-size:17px}.intro{padding:clamp(30px,7vw,76px) clamp(18px,5vw,56px);display:grid;align-items:center;gap:20px;background:color-mix(in srgb,var(--accent) 10%,white)}.with-photo{grid-template-columns:1fr 1fr}.intro img{width:100%;height:clamp(170px,26vw,390px);object-fit:cover;border-radius:14px}h1{font-size:clamp(34px,6vw,78px);line-height:1.02;letter-spacing:-.055em;margin:0 0 16px}p{font-size:17px;line-height:1.55;margin:0;white-space:pre-wrap}h1,h2,p,strong,span{overflow-wrap:anywhere}.cta{display:inline-block;margin-top:20px;padding:11px 16px;border-radius:8px;background:var(--accent);color:white;text-decoration:none;font-weight:700;text-shadow:0 1px 3px #0008}section{padding:28px clamp(18px,5vw,56px)}h2{margin:0 0 15px;font-size:28px;letter-spacing:-.025em}.app main{max-width:650px;min-height:100vh;background:white}.app .intro{border-radius:15px;margin:14px;padding:23px}.app section{padding:14px 18px 30px}.tasks{display:grid;gap:8px}.tasks label{display:flex;align-items:center;gap:10px;border:1px solid #eae5ef;border-radius:9px;padding:11px;cursor:pointer}.tasks input{width:19px;height:19px;accent-color:var(--accent);flex:none}.tasks input:checked+span{text-decoration:line-through;color:#686270}.progress{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;font-size:14px}.progress button{font:inherit;background:none;border:1px solid #ddd5e8;border-radius:7px;padding:4px 10px;cursor:pointer}@media(max-width:520px){.with-photo{grid-template-columns:1fr}}';
 }
 function snapshotLink(p) {
-  const snapshot = {template:p.template,type:p.type};
+  const snapshot = {template:typeof p.template === "string" ? p.template : "blank",type:p.type};
   for (const [key] of fields) snapshot[key] = p[key];
-  if (isGameType(p.type)) snapshot.game = p.game;
-  if (p.type === "video") snapshot.video = p.video;
-  if (p.blocks?.length) snapshot.blocks = p.blocks;
-  if (p.pages?.length) snapshot.pages = p.pages;
-  if (p.buttonTarget) snapshot.buttonTarget = p.buttonTarget;
-  if (p.hideTemplate) snapshot.hideTemplate = true;
+  const pick = (item,keys) => Object.fromEntries(keys.filter(key=>Object.hasOwn(item,key)).map(key=>[key,item[key]]));
+  function pageContent(content) {
+    const result = pick(content,["buttonTarget"]);
+    if (content.hideTemplate === true) result.hideTemplate = true;
+    if (content.blocks?.length) result.blocks = content.blocks.map(block=>pick(block,["id","type","a","b","pageTarget"]));
+    return result;
+  }
+  if (isGameType(p.type)) snapshot.game = pick(p.game,["background","time","cells","wallHeight"]);
+  if (p.type === "video") snapshot.video = {
+    format:p.video.format,
+    scenes:p.video.scenes.map(scene=>pick(scene,["asset","title","caption","duration","trim","layout","transition","color"]))
+  };
+  if (supportsPages(p.type)) {
+    Object.assign(snapshot,pageContent(p));
+    if (p.pages?.length) snapshot.pages = p.pages.map(page=>({
+      ...pick(page,["id",...fields.map(([key])=>key)]),...pageContent(page)
+    }));
+  }
   const bytes = new TextEncoder().encode(JSON.stringify(snapshot));
   const code = btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join("")).replaceAll("+","-").replaceAll("/","_").replace(/=+$/,"");
   const url = new URL("./",location.href);
   url.hash = "view="+code;
   return url.href;
 }
-function readSnapshot(hash) {
-  const code = hash.slice(6);
-  if (code.length > 200000 || !/^[\w-]+$/.test(code)) throw Error("Invalid snapshot");
-  const bytes = Uint8Array.from(atob(code.replaceAll("-","+").replaceAll("_","/")), (char) => char.charCodeAt(0));
-  const p = JSON.parse(new TextDecoder().decode(bytes));
-  if (!p || !["web","app","game","game3d","video"].includes(p.type) || fields.some(([key,,max]) => typeof p[key] !== "string" || p[key].length > max)) throw Error("Invalid snapshot");
+function validateProject(p) {
+  if (!p || !["web","app","game","game3d","video"].includes(p.type)) throw Error("Invalid project");
+  const defaults = templateFor(p) || blank(p.type);
+  for (const [key,,max] of fields) {
+    if (p[key] === undefined) p[key] = defaults[key];
+    if (typeof p[key] !== "string" || p[key].length > max) throw Error("Invalid project field");
+  }
   if (p.type === "video" && !validVideo(p.video)) throw Error("Invalid video");
   if (isGameType(p.type) && !validGame(p.game)) throw Error("Invalid game");
   if (p.blocks !== undefined && !validBlocks(p.blocks)) throw Error("Invalid blocks");
@@ -230,13 +251,44 @@ function readSnapshot(hash) {
   p.hideTemplate = p.hideTemplate === true;
   return p;
 }
+function readDrafts() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(storageKey) || "[]");
+    if (!Array.isArray(stored)) return [];
+    const seen = new Set();
+    return stored.filter(draft => {
+      if (!draft || typeof draft.id !== "string" || seen.has(draft.id)) return false;
+      try { validateProject(draft); } catch { return false; }
+      if (draft.aiHistory !== undefined) {
+        draft.aiHistory = (Array.isArray(draft.aiHistory) ? draft.aiHistory : [])
+          .filter(item=>["user","assistant"].includes(item?.role) && typeof item.text === "string" && item.text.trim())
+          .slice(-24).map(({role,text})=>({role,text:text.slice(0,1700)}));
+      }
+      seen.add(draft.id);
+      return true;
+    });
+  } catch { return []; }
+}
+function readSnapshot(hash) {
+  const code = hash.slice(6);
+  if (code.length > 200000 || !/^[\w-]+$/.test(code)) throw Error("Invalid snapshot");
+  const bytes = Uint8Array.from(atob(code.replaceAll("-","+").replaceAll("_","/")), (char) => char.charCodeAt(0));
+  return validateProject(JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(bytes)));
+}
 function route() {
   stopPublishedGame();
   const publicPage = location.hash.startsWith("#view=");
-  $("#studio").hidden = publicPage;
+  const studio = $("#studio"), wasPublic = studio.hidden;
+  studio.hidden = publicPage;
   const target = $("#published");
   target.hidden = !publicPage;
-  if (!publicPage) { target.replaceChildren(); document.title = "Launchpad Studio"; return; }
+  if (!publicPage) {
+    target.replaceChildren();
+    document.title = "Launchpad Studio";
+    if (wasPublic) go(page);
+    return;
+  }
+  if (!wasPublic) disposeEditorPreview();
   try {
     const p = readSnapshot(location.hash);
     document.title = p.name || "Published project";
@@ -247,25 +299,45 @@ function route() {
       return;
     }
     if (isGameType(p.type)) { stopPublishedGame = mountGame(target,p,true); return; }
-    if (p.type === "app" || projectPages(p).some(({content})=>content.blocks?.some(block=>block.type === "checklist"))) {
-      const frame = document.createElement("iframe");
-      frame.className = "published-view";
-      frame.title = document.title;
-      frame.setAttribute("sandbox","allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox");
-      frame.srcdoc = projectHTML(p);
-      target.replaceChildren(frame);
-    } else {
-      const frame = document.createElement("iframe");
-      frame.className = "published-view";
-      frame.title = document.title;
-      frame.setAttribute("sandbox","allow-scripts allow-popups allow-popups-to-escape-sandbox");
-      frame.srcdoc = projectHTML(p);
-      target.replaceChildren(frame);
-    }
+    stopPublishedGame = mountPublishedPages(target,p);
   } catch { target.innerHTML = '<p class="empty">This project link is incomplete or invalid. <a href="./">Open Launchpad Studio</a></p>'; }
 }
+function mountPublishedPages(target,project) {
+  const frame = document.createElement("iframe");
+  frame.className = "published-view";
+  frame.title = document.title;
+  frame.setAttribute("sandbox","allow-scripts allow-popups allow-popups-to-escape-sandbox");
+
+  const scope = location.hash, keys = new Map(), values = {};
+  for (const {id,content} of projectPages(project)) {
+    if (project.type === "app") keys.set("page:"+id,"launchpad-checks:"+scope+(id === homePage ? "" : ":"+id));
+    for (const block of content.blocks || []) {
+      if (block.type === "checklist") keys.set("block:"+block.id,"launchpad-block:"+scope+":"+block.id);
+    }
+  }
+  for (const [key,storageKey] of keys) {
+    try {
+      const value = localStorage.getItem(storageKey);
+      if (value?.length <= 5000) values[key] = value;
+    } catch {}
+  }
+  function saveChecks(event) {
+    if (event.source !== frame.contentWindow) return;
+    const {kind,key,value} = event.data || {};
+    if (kind !== "launchpad-checklist" || !keys.has(key) || typeof value !== "string" || value.length > 5000) return;
+    try { localStorage.setItem(keys.get(key),value); } catch {}
+  }
+  if (keys.size) window.addEventListener("message",saveChecks);
+  frame.srcdoc = projectHTML(project,undefined,undefined,homePage,keys.size ? values : undefined);
+  target.replaceChildren(frame);
+  return () => window.removeEventListener("message",saveChecks);
+}
 function publish() {
-  if (!current.name.trim() || (!isGameType(current.type) && !current.hideTemplate && !current.title.trim())) { toast(isGameType(current.type) ? "Enter a game name first." : "Enter a project name and headline first."); return; }
+  if (!current.name.trim()) { toast("Enter a project name first."); return; }
+  if (supportsPages(current.type) && !current.hideTemplate && !current.title.trim()) {
+    toast("Enter a headline or hide template content before publishing.");
+    return;
+  }
   if (isGameType(current.type)) {
     const roles = Object.values(current.game.cells).map((id) => assetById.get(id).role);
     if (!roles.includes("player") || !roles.includes("exit")) { toast("Place a player and a gate before publishing."); return; }
@@ -280,6 +352,12 @@ async function download() {
   const p = structuredClone(current);
   const image = p.hideTemplate ? null : templateFor(p)?.image;
   const paths = new Set(image ? ["media/"+image] : []);
+  if (p.type === "video") {
+    for (const scene of p.video.scenes) {
+      const asset = videoAssets.get(scene.asset);
+      if (asset) paths.add(asset.path);
+    }
+  }
   for (const block of projectPages(p).flatMap(({content})=>content.blocks || [])) {
     if (block.type === "image" && assetByPath.has(block.b)) paths.add(block.b);
   }
@@ -287,12 +365,12 @@ async function download() {
     for (const id of [p.game.background,...Object.values(p.game.cells)]) paths.add(assetById.get(id).path);
   }
   const assets = {};
-  let gameStyles;
+  let styles;
   try {
-    if (isGameType(p.type)) {
-      const response = await fetch("game-play.css");
-      if (!response.ok) throw Error("Game styles missing");
-      gameStyles = await response.text();
+    if (isGameType(p.type) || p.type === "video") {
+      const response = await fetch(p.type === "video" ? "video-play.css" : "game-play.css");
+      if (!response.ok) throw Error("Project styles missing");
+      styles = await response.text();
     }
     await Promise.all([...paths].map(async (path) => {
       const response = await fetch(path);
@@ -306,7 +384,9 @@ async function download() {
       });
     }));
   } catch { toast("The project assets couldn’t be embedded. Try again when connected."); return; }
-  const html = isGameType(p.type) ? gameHTML(p,assets,gameStyles) : projectHTML(p,assets["media/"+image],assets);
+  const html = isGameType(p.type) ? gameHTML(p,assets,styles)
+    : p.type === "video" ? videoHTML(p,assets,styles)
+    : projectHTML(p,assets["media/"+image],assets);
   const url = URL.createObjectURL(new Blob([html], {type:"text/html"}));
   const link = document.createElement("a");
   link.href = url;
@@ -348,7 +428,7 @@ const actions = {
       editingPage().blocks.push(block);
       selectedBlock = block.id;
     }
-    saveEditor();
+    saveEditor(true);
     renderBlockStage();
   }),
   help: () => openDialog("Using Launchpad",'<p class="subtext">Choose a template, edit its content, and switch between desktop and mobile previews. Your drafts are saved in this browser. Publish creates a shareable snapshot. Download HTML saves a standalone file.</p>')
@@ -363,5 +443,6 @@ document.addEventListener("click", (event) => {
   if (button) actions[button.dataset.action]?.(button.dataset.id);
 });
 window.addEventListener("hashchange",route);
-go(page);
+projects = readDrafts();
+if (!location.hash.startsWith("#view=")) go(page);
 route();

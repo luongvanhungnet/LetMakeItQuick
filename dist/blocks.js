@@ -100,15 +100,10 @@ function renderBlock(block, assets = {}, pageIds = new Set()) {
   }
 }
 
-function blockInteraction() {
-  let storage, scope;
-  try {
-    storage = window.parent === window ? localStorage : window.parent.localStorage;
-    scope = window.parent === window ? location.pathname : window.parent.location.hash;
-  } catch {}
+function blockInteraction(storage) {
   document.querySelectorAll("[data-checklist]").forEach((list) => {
     const inputs = [...list.querySelectorAll("input")];
-    const key = "launchpad-block:"+scope+":"+list.dataset.checklist;
+    const key = "block:"+list.dataset.checklist;
     try {
       const checked = JSON.parse(storage?.getItem(key) || "[]");
       inputs.forEach((input,index) => { input.checked = checked[index] === true; });
@@ -134,9 +129,10 @@ function builder() {
 let selectedBlock = null;
 let draggedBlock = null;
 
-function saveEditor() {
+function saveEditor(immediate = false) {
   $("#save-note").textContent = save() ? "Saved on this device" : "Draft could not be saved";
-  schedulePreview();
+  if (immediate) refreshPreview();
+  else schedulePreview();
 }
 function renderBlockStage() {
   const blocks = editingPage().blocks || [];
@@ -164,7 +160,7 @@ function renderBlockInspector() {
 function handleBuilder() {
   const root = $(".builder");
   renderBlockStage();
-  $("#show-template").addEventListener("change", (event) => { editingPage().hideTemplate = !event.target.checked; saveEditor(); });
+  $("#show-template").addEventListener("change", (event) => { editingPage().hideTemplate = !event.target.checked; saveEditor(true); });
   function add(type, slot, copy) {
     editingPage().blocks ??= [];
     if (editingPage().blocks.length >= maxBlocks) { toast("This project already has "+maxBlocks+" blocks."); return; }
@@ -172,7 +168,7 @@ function handleBuilder() {
     if (copy) { block.a = copy.a; block.b = copy.b; if (copy.pageTarget) block.pageTarget = copy.pageTarget; }
     editingPage().blocks.splice(slot,0,block);
     selectedBlock = block.id;
-    saveEditor();
+    saveEditor(true);
     renderBlockStage();
   }
   root.addEventListener("click", (event) => {
@@ -189,7 +185,7 @@ function handleBuilder() {
       editingPage().blocks.splice(index,1);
       selectedBlock = editingPage().blocks[Math.min(index,editingPage().blocks.length-1)]?.id || null;
     } else moveBlock(editingPage().blocks,index,action === "up" ? index-1 : index+2);
-    saveEditor();
+    saveEditor(true);
     renderBlockStage();
     root.querySelector('.row-title[aria-pressed="true"]')?.focus();
   });
@@ -199,7 +195,7 @@ function handleBuilder() {
     const block = editingPage().blocks.find((item) => item.id === selectedBlock);
     if (!block) return;
     block[key] = event.target.value;
-    saveEditor();
+    saveEditor(event.target.tagName === "SELECT");
     const row = root.querySelector(".build-row.selected .row-title > span:last-child");
     row.querySelector("small")?.remove();
     const title = block.type === "spacer" ? block.a+" px" : block.a.split("\n")[0];
@@ -248,7 +244,7 @@ function handleBuilder() {
     if (tool) add(tool,slot);
     else if (moveBlock(editingPage().blocks,Number(move),slot)) {
       selectedBlock = editingPage().blocks[Number(move) < slot ? slot-1 : slot].id;
-      saveEditor();
+      saveEditor(true);
       renderBlockStage();
     }
   });

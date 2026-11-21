@@ -18,7 +18,7 @@ Launchpad Studio is a browser-based editor for creating websites, mobile web app
 | Mobile web app | Use the page and block editor with a mobile preview. Add interactive blocks such as checklists, counters, and accordions. | Published snapshot or standalone HTML that runs in a browser |
 | 2D game | Place characters, walls, collectibles, enemies, traps, and gates on a grid. Set an optional timer and playtest with keyboard or on-screen controls. | Published playable snapshot or standalone HTML |
 | 3D game | Build a grid-based level, adjust wall height, and playtest in first person. Players can move continuously, look around, collide with walls, collect items, and reach the exit. | Published playable snapshot or standalone HTML. Playback requires WebGL. |
-| Video | Arrange scenes on a timeline, trim built-in clips, add images, edit titles and captions, and select cuts or fades. Choose landscape, square, or portrait. | Published playback snapshot or silent MP4/WebM, depending on browser support |
+| Video | Arrange scenes on a timeline, trim built-in clips, add images, edit titles and captions, and select cuts or fades. Choose landscape, square, or portrait. | Published playback snapshot, standalone HTML with embedded media, or silent MP4/WebM depending on browser support |
 
 ## Core workflows
 
@@ -66,4 +66,4 @@ The browser stores chat history with the draft and excludes it from published sn
 
 ## Verification status
 
-Automated checks passed for page navigation, snapshot compatibility, AI follow-ups and proposal approval, and 3D collision and win logic. The 3D shaders and depth behavior were tested on an OpenGL ES driver. Full browser playtesting and actual video recording in a browser remain unverified. The GPT integration was tested with a simulated response. Live requests require a configured API key.
+See [release verification](VERIFICATION.md) for the local Worker, Chromium playtests, media export checks, and the scope of GPT verification.

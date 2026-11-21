@@ -1,1 +1,15 @@
-dist/server/
+# Generated Worker bundle, dependencies, and browser test artifacts
+/dist/server/
+node_modules/
+/test-results/
+/playwright-report/
+
+# Local environment and Worker secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+.dev.vars
+.dev.vars.*
+!.dev.vars.example

@@ -45,7 +45,7 @@ function demoProposal(type, prompt, editing) {
 }
 
 function projectFromProposal(type, plan, original) {
-  if (!plan || typeof plan !== "object") throw Error("There’s no proposal to apply.");
+  if (!plan || typeof plan !== "object" || Array.isArray(plan)) throw Error("There’s no proposal to apply.");
   const draft = original ? structuredClone(original) : {...blank(type),template:"blank",id:crypto.randomUUID()};
   const changes = [];
   for (const [field,label,max] of fields) {
@@ -240,9 +240,10 @@ function editVideoProposal(draft, proposal, changes) {
 
 function editDemoProposal(project,prompt,history) {
   let request = prompt.trim();
-  const earlierPrompt = history.filter((item) => item.role === "user").at(-1)?.text || "";
-  if (/^(it|that|same)\b/i.test(request) || /^(make|change|set) (it|that)\b/i.test(request)) {
-    const earlierTarget = earlierPrompt.match(/(?:scene|block)\s+\d+|headline|caption|section title|button label/i)?.[0];
+  if (/^(?:(?:make|change|set) )?(?:it|that|same)\b/i.test(request)) {
+    const earlierTarget = history.filter(item => item.role === "user").map(item =>
+      item.text.match(/(?:scene|block)\s+\d+|headline|caption|section title|button label|introduction/i)?.[0]
+    ).findLast(Boolean);
     if (earlierTarget) request = request.replace(/\b(?:it|that|same)\b/i,earlierTarget);
   }
   const quote = request.match(/["“]([^"”]+)["”]/)?.[1] || request.match(/‘([^’]+)’/)?.[1];
@@ -337,16 +338,18 @@ function renderAIEditor() {
         if (!response.ok) throw Error(payload.error || "GPT is unavailable.");
         plan = payload.plan;
       }
-      if (!form.isConnected || current.id !== projectId) return;
+      if (!form.isConnected || current !== original || $("#studio").hidden) return;
       const {draft,changes} = projectFromProposal(type,plan,original);
-      const reply = typeof plan.reply === "string" ? plan.reply : changes.length ? (typeof plan.summary === "string" ? plan.summary : "I proposed the changes below.") : "I couldn’t identify a supported edit. Try naming the field, block, or scene you want to change.";
+      const reply = typeof plan.reply === "string" && plan.reply.trim() ? plan.reply.trim()
+        : changes.length ? (typeof plan.summary === "string" && plan.summary.trim() ? plan.summary.trim() : "I proposed the changes below.")
+        : "I couldn’t identify a supported edit. Try naming the field, block, or scene you want to change.";
       append("assistant",reply);
       status.textContent = "";
       if (!changes.length) return;
       result.innerHTML = '<section class="ai-result"><h3>Review changes</h3><ul>'+changes.map(change=>'<li>'+esc(change)+'</li>').join("")+'</ul><div class="dialog-actions"><button type="button" class="primary" data-apply>Apply changes</button><button type="button" class="secondary" data-dismiss>Dismiss</button></div></section>';
       result.querySelector("[data-apply]").addEventListener("click",() => {
-        const projectIndex = projects.findIndex(project=>project.id === projectId);
-        if (projectIndex < 0) return;
+        const projectIndex = projects.indexOf(original);
+        if (projectIndex < 0 || current !== original) return;
         draft.aiHistory = current.aiHistory;
         current = projects[projectIndex] = draft;
         $(".project-heading h1").textContent = current.name || "Untitled project";

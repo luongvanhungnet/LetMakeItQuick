@@ -115,15 +115,30 @@ function runPageNavigation() {
   if (standalone) window.addEventListener("hashchange",()=>route(true));
   route(false);
 }
-function runPageChecklists() {
-  let storage, scope;
-  try {
-    storage = window.parent === window ? localStorage : window.parent.localStorage;
-    scope = window.parent === window ? document.title+location.pathname : window.parent.location.hash;
-  } catch {}
+function projectChecklistStore() {
+  if (window.parent === window) {
+    function keyFor(key) {
+      if (key.startsWith("block:")) return "launchpad-block:"+location.pathname+":"+key.slice(6);
+      const page = key.slice(5);
+      return "launchpad-checks:"+document.title+location.pathname+(page === "home" ? "" : ":"+page);
+    }
+    return {
+      getItem: key => localStorage.getItem(keyFor(key)),
+      setItem: (key,value) => localStorage.setItem(keyFor(key),value)
+    };
+  }
+  const initial = document.body.dataset.checklistState;
+  if (!initial) return;
+  const values = JSON.parse(initial);
+  return {
+    getItem: key => Object.hasOwn(values,key) ? values[key] : null,
+    setItem: (key,value) => window.parent.postMessage({kind:"launchpad-checklist",key,value},"*")
+  };
+}
+function runPageChecklists(storage) {
   for (const content of document.querySelectorAll("[data-base-checklist]")) {
     const id = content.closest("[data-project-page]").dataset.projectPage;
-    const key = "launchpad-checks:"+scope+(id === "home" ? "" : ":"+id);
+    const key = "page:"+id;
     const tasks = [...content.querySelectorAll("input[type=checkbox]")];
     try {
       const values = JSON.parse(storage?.getItem(key) || "[]");
@@ -136,6 +151,6 @@ function runPageChecklists() {
     }
     tasks.forEach(task=>task.addEventListener("change",update));
     content.querySelector("[data-reset]").addEventListener("click",()=>{ tasks.forEach(task=>{task.checked=false;}); update(); });
-    update();
+    content.querySelector("[data-count]").textContent = tasks.filter(task=>task.checked).length+" of "+tasks.length+" completed";
   }
 }

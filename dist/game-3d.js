@@ -26,7 +26,8 @@ function createWorld3D(config) {
 }
 
 function stepWorld3D(world,dx,dz,dt) {
-  if (world.result) return;
+  if (world.result || ![dx,dz,dt].every(Number.isFinite)) return;
+  const steps = Math.max(1,Math.ceil(Math.max(Math.abs(dx),Math.abs(dz),Math.abs(dt)*.8)/.1));
   function walkable(x,z,radius) {
     if (x-radius < 0 || z-radius < 0 || x+radius >= world.width || z+radius >= world.height) return false;
     for (const ox of [-radius,radius]) for (const oz of [-radius,radius]) {
@@ -34,27 +35,31 @@ function stepWorld3D(world,dx,dz,dt) {
     }
     return true;
   }
-  if (walkable(world.x+dx,world.z,.22)) world.x += dx;
-  if (walkable(world.x,world.z+dz,.22)) world.z += dz;
-  const index = Math.floor(world.x)+Math.floor(world.z)*world.width;
-  const tile = world.tiles.get(index);
-  if (tile && Math.hypot(world.x-tile.x,world.z-tile.z) < .43) {
-    if (tile.role === "gem") { world.tiles.delete(index); world.remaining--; }
-    if (tile.role === "hazard") { world.result = "You hit a trap."; return; }
-    if (tile.role === "exit" && world.remaining === 0) { world.result = "Level complete!"; return; }
-  }
-  for (const enemy of world.enemies) {
-    const next = enemy.x + enemy.direction*dt*.8;
-    if (walkable(next,enemy.z,.27)) enemy.x = next;
-    else enemy.direction *= -1;
-    if (Math.hypot(world.x-enemy.x,world.z-enemy.z) < .44) world.result = "A creature caught you.";
+  for (let i=0;i<steps && !world.result;i++) move(dx/steps,dz/steps,dt/steps);
+  function move(dx,dz,dt) {
+    if (walkable(world.x+dx,world.z,.22)) world.x += dx;
+    if (walkable(world.x,world.z+dz,.22)) world.z += dz;
+    const index = Math.floor(world.x)+Math.floor(world.z)*world.width;
+    const tile = world.tiles.get(index);
+    if (tile && Math.hypot(world.x-tile.x,world.z-tile.z) < .43) {
+      if (tile.role === "gem") { world.tiles.delete(index); world.remaining--; }
+      if (tile.role === "hazard") { world.result = "You hit a trap."; return; }
+      if (tile.role === "exit" && world.remaining === 0) { world.result = "Level complete!"; return; }
+    }
+    for (const enemy of world.enemies) {
+      const next = enemy.x + enemy.direction*dt*.8;
+      if (walkable(next,enemy.z,.27)) enemy.x = next;
+      else enemy.direction *= -1;
+      if (Math.hypot(world.x-enemy.x,world.z-enemy.z) < .44) world.result = "A creature caught you.";
+    }
   }
 }
 
 function playWorld3D(root,config,createWorld,stepWorld) {
   const canvas = root.querySelector("canvas");
   const status = root.querySelector("#play-status"), score = root.querySelector("#play-score");
-  const gl = canvas.getContext("webgl",{alpha:false,antialias:true});
+  let gl;
+  try { gl = canvas.getContext("webgl",{alpha:false,antialias:false,depth:true}); } catch {}
   const idle = () => {};
   if (!gl) { status.textContent = "This game needs WebGL. Enable hardware acceleration or try a WebGL-capable browser."; return idle; }
   function shader(kind,source) {
@@ -116,13 +121,25 @@ function playWorld3D(root,config,createWorld,stepWorld) {
   const controls = new AbortController();
   const signal = controls.signal;
   const keys = new Set();
-  let world, yaw, pitch, deadline, started, frame, previous, dragging = null, active = true, disposed = false;
-  let staticCount = 0;
+  let world, yaw, pitch, deadline, started, frame, previous;
+  let dragging = null, active = true, disposed = false;
+  let staticCount = 0, viewWidth = 0, viewHeight = 0;
+  const observer = new ResizeObserver(([entry]) => {
+    viewWidth = entry.contentRect.width;
+    viewHeight = entry.contentRect.height;
+  });
+  observer.observe(canvas);
+  const colors = new Map();
   const fog = /woodland|moss/.test(config.background) ? [.16,.28,.23] : /reef|glacier/.test(config.background) ? [.12,.23,.38] : [.17,.13,.32];
 
+  gl.clearColor(...fog,1);
+  gl.uniform3f(uniforms.Fog,...fog);
+  gl.uniform1f(uniforms.Aspect,canvas.width/canvas.height);
+
   function triangle(mesh,a,b,c,paint,light=1) {
-    const shade = paint.map(value => value*light);
-    mesh.push(...a,...shade,...b,...shade,...c,...shade);
+    const [red,green,blue] = paint;
+    const r = red*light, g = green*light, bl = blue*light;
+    mesh.push(a[0],a[1],a[2],r,g,bl,b[0],b[1],b[2],r,g,bl,c[0],c[1],c[2],r,g,bl);
   }
   function quad(mesh,a,b,c,d,paint,light) {
     triangle(mesh,a,b,c,paint,light);
@@ -146,8 +163,11 @@ function playWorld3D(root,config,createWorld,stepWorld) {
     }
   }
   function material(id) {
-    const value = Array.from(id).reduce((sum,char)=>((sum*31)+char.charCodeAt(0))>>>0,17);
-    return [0,8,16].map(shift=>.38+((value>>>shift)&63)/145);
+    if (!colors.has(id)) {
+      const value = Array.from(id).reduce((sum,char)=>((sum*31)+char.charCodeAt(0))>>>0,17);
+      colors.set(id,[0,8,16].map(shift=>.38+((value>>>shift)&63)/145));
+    }
+    return colors.get(id);
   }
   function staticGeometry() {
     const mesh = [];
@@ -191,20 +211,20 @@ function playWorld3D(root,config,createWorld,stepWorld) {
     gl.drawArrays(gl.TRIANGLES,0,count);
   }
   function render(now) {
-    const rect = canvas.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    const density = Math.min(2,window.devicePixelRatio || 1);
-    const width = Math.min(1600,Math.max(1,Math.round(rect.width*density)));
-    const height = Math.min(1000,Math.max(1,Math.round(rect.height*density)));
-    if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
-    gl.viewport(0,0,width,height);
-    gl.clearColor(...fog,1);
+    if (!viewWidth || !viewHeight) return;
+    const density = Math.min(2,window.devicePixelRatio || 1,1600/viewWidth,1000/viewHeight);
+    const width = Math.max(1,Math.round(viewWidth*density));
+    const height = Math.max(1,Math.round(viewHeight*density));
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+      gl.viewport(0,0,width,height);
+      gl.uniform1f(uniforms.Aspect,width/height);
+    }
     gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-    gl.uniform3f(uniforms.Fog,...fog);
     gl.uniform3f(uniforms.Eye,world.x,1.25,world.z);
     gl.uniform2f(uniforms.Yaw,Math.cos(yaw),Math.sin(yaw));
     gl.uniform2f(uniforms.Pitch,Math.cos(pitch),Math.sin(pitch));
-    gl.uniform1f(uniforms.Aspect,width/height);
     renderBuffer(staticBuffer,staticCount);
     const mesh = [];
     for (const item of world.tiles.values()) if (item.role === "gem") {
@@ -237,7 +257,10 @@ function playWorld3D(root,config,createWorld,stepWorld) {
   }
   function loop(now) {
     if (!active) return;
-    const dt = Math.min(.035,(now-(previous ?? now))/1000);
+    frame = requestAnimationFrame(loop);
+    // Bound render work while allowing for jitter and high-refresh display intervals.
+    if (previous !== undefined && now-previous < 13.5) return;
+    const dt = Math.min(.1,Math.max(0,(now-(previous ?? now))/1000));
     previous = now;
     if (!world.result) {
       const left = Number(keys.has("arrowleft")), right = Number(keys.has("arrowright"));
@@ -255,7 +278,6 @@ function playWorld3D(root,config,createWorld,stepWorld) {
       }
     }
     render(now);
-    frame = requestAnimationFrame(loop);
   }
   const allowed = new Set(["w","a","s","d","arrowup","arrowdown","arrowleft","arrowright"]);
   root.addEventListener("keydown",event=>{
@@ -303,6 +325,7 @@ function playWorld3D(root,config,createWorld,stepWorld) {
     disposed = true;
     active = false;
     controls.abort();
+    observer.disconnect();
     cancelAnimationFrame(frame);
     gl.deleteBuffer(staticBuffer);
     gl.deleteBuffer(actorBuffer);

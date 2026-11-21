@@ -6,13 +6,16 @@ Omit keys you do not need. Fields update existing values; include only changed f
 function api(data, status = 200) {
   return Response.json(data,{status,headers:{"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
 }
+function isObject(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
 async function handleAI(request, env) {
   if (request.method === "GET") return api({gptAvailable:!!env.OPENAI_API_KEY,model});
   if (request.method !== "POST") return api({error:"Method unavailable."},405);
   if (request.headers.get("Origin") !== new URL(request.url).origin ||
       !request.headers.get("oai-authenticated-user-id")) return api({error:"Sign in to use GPT."},403);
   if (!env.OPENAI_API_KEY) return api({error:"GPT isn’t connected. Use Demo mode to try the workflow."},503);
-  if (!request.headers.get("content-type")?.startsWith("application/json")) return api({error:"Expected JSON."},415);
+  if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get("content-type") || "")) return api({error:"Expected JSON."},415);
+  const limit = 84000;
+  if (Number(request.headers.get("Content-Length")) > limit) return api({error:"The prompt is too large."},413);
   const reader = request.body?.getReader();
   if (!reader) return api({error:"A project prompt is required."},400);
   const chunks = [];
@@ -22,31 +25,69 @@ async function handleAI(request, env) {
       const {value,done} = await reader.read();
       if (done) break;
       length += value.byteLength;
-      if (length > 84000) { await reader.cancel(); return api({error:"The prompt is too large."},413); }
+      if (length > limit) { void reader.cancel().catch(() => {}); return api({error:"The prompt is too large."},413); }
       chunks.push(value);
     }
     const bytes = new Uint8Array(length);
     let offset = 0;
     for (const chunk of chunks) { bytes.set(chunk,offset); offset += chunk.byteLength; }
-    input = JSON.parse(new TextDecoder().decode(bytes));
+    input = JSON.parse(new TextDecoder("utf-8",{fatal:true}).decode(bytes));
   } catch { return api({error:"The prompt could not be read."},400); }
   if (!input || !allowedTypes.has(input.type) || typeof input.prompt !== "string" ||
       !input.prompt.trim() || input.prompt.length > 1700) return api({error:"Enter a project prompt up to 1,700 characters."},400);
+  if (input.history !== undefined && (!Array.isArray(input.history) || input.history.length > 8 ||
+      input.history.some(item => !isObject(item) || !["user","assistant"].includes(item.role) ||
+        typeof item.text !== "string" || !item.text.trim() || item.text.length > 650))) {
+    return api({error:"Conversation history must contain up to eight recent messages of 650 characters each."},400);
+  }
+  const signal = AbortSignal.timeout(24000);
   try {
     const response = await fetch("https://api.openai.com/v1/responses",{
       method:"POST",
       headers:{Authorization:"Bearer "+env.OPENAI_API_KEY,"Content-Type":"application/json"},
       body:JSON.stringify({model, instructions, input:JSON.stringify(input),store:false,max_output_tokens:2200,text:{format:{type:"json_object"}}}),
-      signal:AbortSignal.timeout(24000)
+      signal
     });
     if (response.status === 401 || response.status === 403) return api({error:"The server’s OpenAI key or model access needs attention."},502);
     if (response.status === 429) return api({error:"OpenAI rate limit or quota reached. Try again later or use Demo."},429);
     if (!response.ok) return api({error:"GPT could not generate a proposal. Try again."},502);
     const result = await response.json();
-    const output = (result.output || []).flatMap((item) => item.content || []).find((item) => item.type === "output_text");
-    if (!output || result.status === "incomplete") return api({error:"GPT could not finish. Try a smaller edit."},502);
-    return api({plan:JSON.parse(output.text)});
-  } catch { return api({error:"GPT could not return a proposal. Try again or use Demo."},502); }
+    const output = result.output?.filter(item => item?.type === "message" || item?.type === undefined)
+      .flatMap(item => Array.isArray(item?.content) ? item.content : [])
+      .find(item => item?.type === "output_text");
+    if (typeof output?.text !== "string" || result.status === "incomplete") {
+      return api({error:"GPT could not finish. Try a smaller edit."},502);
+    }
+    const plan = JSON.parse(output.text);
+    if (!isObject(plan)) return api({error:"GPT returned an invalid proposal."},502);
+    return api({plan});
+  } catch (error) {
+    if (signal.aborted || error.name === "TimeoutError") return api({error:"GPT timed out. Try again or use Demo."},504);
+    return api({error:"GPT could not return a proposal. Try again or use Demo."},502);
+  }
+}
+const decodedClips = new Map();
+function serveClip(request,path,content,headers) {
+  const size = content.length / 4 * 3 - (content.endsWith("==") ? 2 : Number(content.endsWith("=")));
+  headers["Accept-Ranges"] = "bytes";
+  headers["Content-Length"] = String(size);
+  if (request.method === "HEAD") return new Response(null,{headers});
+  const range = request.headers.get("Range");
+  if (!decodedClips.has(path)) decodedClips.set(path,Uint8Array.from(atob(content),char=>char.charCodeAt(0)));
+  const body = decodedClips.get(path);
+  // A full response is valid for unsupported units, multipart ranges and If-Range without a validator.
+  if (!/^bytes=/i.test(range || "") || range.includes(",") || request.headers.has("If-Range")) {
+    return new Response(body,{headers});
+  }
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(range);
+  const start = match?.[1] ? Number(match[1]) : Math.max(0,size-Number(match?.[2] || 0));
+  const end = match?.[1] && match[2] ? Math.min(size-1,Number(match[2])) : size-1;
+  if (!match || !Number.isSafeInteger(start) || start > end) {
+    return new Response(null,{status:416,headers:{...headers,"Content-Length":"0","Content-Range":"bytes */"+size}});
+  }
+  return new Response(body.subarray(start,end+1),{status:206,headers:{
+    ...headers,"Content-Length":String(end-start+1),"Content-Range":"bytes "+start+"-"+end+"/"+size
+  }});
 }
 export default {
   async fetch(request,env) {
@@ -57,24 +98,8 @@ export default {
     if (!entry) return new Response("Page not found",{status:404});
     const [contentType,content,binary] = entry;
     const headers = {"Content-Type":contentType,"X-Content-Type-Options":"nosniff","Cache-Control":binary ? "private, max-age=3600" : "no-cache"};
-    const body = binary ? Uint8Array.from(atob(content),char=>char.charCodeAt(0)) : content;
-    if (contentType === "video/mp4") {
-      const size = body.byteLength;
-      headers["Accept-Ranges"] = "bytes";
-      const range = request.headers.get("Range");
-      if (range && request.method === "GET") {
-        const match = /^bytes=(\d*)-(\d*)$/.exec(range);
-        const start = match?.[1] ? Number(match[1]) : Math.max(0,size-Number(match?.[2] || 0));
-        const end = match?.[1] && match[2] ? Math.min(size-1,Number(match[2])) : size-1;
-        if (!match || !Number.isSafeInteger(start) || start > end) {
-          return new Response(null,{status:416,headers:{...headers,"Content-Range":"bytes */"+size}});
-        }
-        return new Response(body.slice(start,end+1),{status:206,headers:{
-          ...headers,"Content-Length":String(end-start+1),"Content-Range":"bytes "+start+"-"+end+"/"+size
-        }});
-      }
-      headers["Content-Length"] = String(size);
-    }
-    return new Response(request.method === "HEAD" ? null : body,{headers});
+    if (contentType === "video/mp4") return serveClip(request,path,content,headers);
+    const body = request.method === "HEAD" ? null : binary ? Uint8Array.from(atob(content),char=>char.charCodeAt(0)) : content;
+    return new Response(body,{headers});
   }
 };

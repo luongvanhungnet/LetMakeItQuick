@@ -1,0 +1,12 @@
+{
+  "name": "letmakeitquick",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node worker/dev.mjs",
+    "test": "node --test tests/worker.test.mjs && playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.60.0"
+  }
+}
