@@ -43,3 +43,9 @@ The implementation in this branch is a locally verified launch workflow. Use [TO
 ## Verification boundary
 
 Worker tests exercise separate creator, reviewer, customer, and anonymous identities, including duplicate checkout, release rollback and gating, draft conflicts, test/live form separation, and reconciliation. Browser tests exercise the creator UI, media export, playable games, staged and hosted playback through a loopback Worker, and the installable package. The local test server is not a production public URL. No live payment, public DNS activation, store approval, or customer usability session is claimed.
+
+### Branch test results
+
+- All **24 Worker tests** passed, including checkout/refund access changes, rollback, team approvals, privacy boundaries, availability alerts, and retention cohorts. The payment test uses a local simulator and mocked Stripe test responses.
+- The functional Chromium cases passed across the regression run and targeted reruns. The catalog rerun passed all three cases. The WebM regression passed with cancellation cleanup and a playable 3.000-second file validated independently with FFprobe. The native MP4, recorded audio, and offline PWA cases passed in the regression run.
+- The isolated 60-second SwiftShader run measured **44.68 FPS** and **46.00 ms p95** after render optimization. The target stays at **55 FPS minimum** and **22 ms p95 maximum**. The software-renderer performance gate remains open.
