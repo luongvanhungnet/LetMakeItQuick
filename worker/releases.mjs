@@ -158,7 +158,7 @@ async function handleReleases(request,env,shell) {
           } catch {}
         }
         const {id,number,snapshot,metadata,createdAt} = live.release;
-        const productData=await productViewData(env,live.owner,live.projectId,workspacePrincipal(request),"production");
+        const productData=await productViewData(env,live.owner,live.projectId,workspacePrincipal(request),"production",live.release.snapshot);
         return releaseJSON({slug:live.slug,productData,release:{id,number,snapshot,metadata,createdAt},supportUrl});
       }
       if (typeof recordReleaseVisit === "function" && request.method === "GET") {
@@ -178,7 +178,7 @@ async function handleReleases(request,env,shell) {
           const offer = await readData(env,"commerce-offers",stage.projectId);
           if (offer?.owner === owner && offer.active) checkout = {id:offer.id,version:offer.version};
         }
-        return releaseJSON({stage,checkout,productData:await productViewData(env,owner,stage.projectId,owner,"staging")});
+        return releaseJSON({stage,checkout,productData:await productViewData(env,owner,stage.projectId,owner,"staging",stage.snapshot)});
       }
       if (typeof recordReleaseVisit === "function" && request.method === "GET") {
         try { await recordReleaseVisit(request,env,owner,{id:stage.id,projectId:stage.projectId,slug:stage.metadata.slug},"test"); }

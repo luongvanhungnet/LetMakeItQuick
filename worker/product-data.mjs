@@ -71,10 +71,13 @@ async function manageProductData(request,env,owner,id,environment) {
   if (!await dataCompareAndSwap(env,scope,environment,current,next)) throw workspaceError("This environment changed. Reopen Product data before saving.",409);
   return api(view(next));
 }
-async function productViewData(env,owner,id,visitor,environment) {
+async function productViewData(env,owner,id,visitor,environment,snapshot) {
+  const project=workspaceReleaseProject(snapshot);
+  const published=new Set([project,...(project?.pages || [])].flatMap(page=>(page?.blocks || []).filter(block=>block.type==="records").map(block=>block.id)));
   const [config,customer]=await Promise.all([readData(env,productScope(owner,id),environment),productCustomer(owner,id,visitor)]);
   const records={};
   for (const [block,list] of Object.entries(config?.lists || {})) {
+    if (!published.has(block)) continue;
     records[block]=list.rows.filter(row=>!row.customer || row.customer===customer).map(({name,details})=>({name,details}));
   }
   return {records,customer};

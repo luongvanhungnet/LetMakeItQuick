@@ -174,3 +174,29 @@ test("published product records isolate customers, staging and creators, keeping
   assert.equal((await call("/api/workspace/delete",{method:"POST",body:{confirmation:"DELETE"}})).status,200);
   assert.deepEqual((await view("alice")).records,{});
 });
+
+test("creator-only studio on a release host and environment-scoped feed execution",async t=>{
+  const id=crypto.randomUUID(), blockId=crypto.randomUUID();
+  const vars={LAUNCHPAD_STUDIO_OWNER_EMAIL:"creator@example.test",LAUNCHPAD_FEED_STAGING:"fixture",
+    LAUNCHPAD_RECORD_CONNECTORS:JSON.stringify([{name:"calendar",owner:"owner",projectId:id,environment:"staging",url:"https://feed.example/events",secret:"LAUNCHPAD_FEED_STAGING"}])};
+  const {call}=session(t,vars), ownerHeaders={"oai-authenticated-user-email":"creator@example.test"};
+  assert.equal((await call("/api/workspace/drafts",{owner:null})).status,401);
+  assert.equal((await call("/api/workspace/drafts",{owner:"customer"})).status,403);
+  assert.equal((await call("/api/workspace/drafts",{headers:ownerHeaders})).status,200);
+  const path="/api/workspace/drafts/"+id;
+  await call(path,{method:"PUT",headers:ownerHeaders,body:{draft:{...project,id},expected:null}});
+  let status=503;
+  t.mock.method(globalThis,"fetch",async(url,options)=>{
+    assert.equal(url,"https://feed.example/events");
+    assert.equal(options.headers.Authorization,"Bearer fixture");
+    assert.equal(options.redirect,"error");
+    return Response.json([{name:"Event",details:"Friday"}],{status});
+  });
+  const payload={method:"PUT",headers:ownerHeaders,body:{blockId,refresh:true,connector:"calendar",revision:null}};
+  assert.equal((await call(path+"/environments/production",payload)).status,400);
+  assert.equal((await call(path+"/environments/staging",payload)).status,502);
+  status=200;
+  const saved=await (await call(path+"/environments/staging",payload)).json();
+  assert.equal(saved.lists[blockId].rows[0].name,"Event");
+  assert.doesNotMatch(JSON.stringify(saved),/Bearer|fixture|feed.example/);
+});
