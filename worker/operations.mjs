@@ -220,6 +220,9 @@ async function opsProbe(env,origin,owner,slug,record,release) {
     result.restricted = [301,302,303,307,308,401,403].includes(response.status);
   } catch { /* Report a failed availability connection. */ }
   result.latencyMs = Date.now()-start;
+  if (!result.ok && release.metadata?.visibility === "public" && env.LAUNCHPAD_PUBLIC_ORIGIN === origin) {
+    try { result.emailDelivery=await deliverUptimeEmail(env,result); } catch { result.emailDelivery="failed"; }
+  }
   await updateData(env,opsOwnerScope(owner),"checks",(checks)=>[result,...(checks || [])].slice(0,60));
   return result;
 }
@@ -340,4 +343,15 @@ async function opsReadInput(request) {
     const data = JSON.parse(input+decoder.decode());
     return data && typeof data === "object" && !Array.isArray(data) ? data : opsResponse({error:"Invalid request."},400);
   } catch { return opsResponse({error:"Invalid request."},400); }
+}
+
+async function deliverUptimeEmail(env,check) {
+  if (!env.RESEND_API_KEY || !env.LAUNCHPAD_ALERT_FROM || !env.LAUNCHPAD_ALERT_TO) return "unconfigured";
+  const hour=Math.floor(check.checkedAt/3600000);
+  const response=await fetch("https://api.resend.com/emails",{method:"POST",redirect:"error",signal:AbortSignal.timeout(6500),
+    headers:{Authorization:"Bearer "+env.RESEND_API_KEY,"Content-Type":"application/json","Idempotency-Key":"uptime-"+check.releaseId+"-"+hour},
+    body:JSON.stringify({from:env.LAUNCHPAD_ALERT_FROM,to:[env.LAUNCHPAD_ALERT_TO],subject:"Launchpad outage: "+check.slug,
+      text:"Release "+check.releaseId+" at "+new URL("/launch/"+check.slug,env.LAUNCHPAD_PUBLIC_ORIGIN).href+
+        " failed its uptime check. HTTP status: "+(check.status || "connection failed")+". Alert window: "+new Date(hour*3600000).toISOString()})});
+  return response.ok ? "accepted" : "failed";
 }

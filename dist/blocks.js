@@ -52,12 +52,17 @@ const blockFields = {
 const maxBlocks = 30;
 const maxBlockText = 700;
 
+function usableDownload(block) {
+  return block.type === "downloads" && typeof block.fileName === "string" && /^[^/\\\x00-\x1f]{1,100}$/.test(block.fileName) &&
+    typeof block.fileData === "string" && block.fileData.length <= 87384 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(block.fileData) && !!block.fileData;
+}
 function validBlocks(blocks) {
   if (!Array.isArray(blocks) || blocks.length > maxBlocks) return false;
   const ids = new Set();
   return blocks.every((block) => {
     if (!block || !Object.hasOwn(blockTypes, block.type) || typeof block.id !== "string" || !/^[\da-f-]{36}$/i.test(block.id) ||
         ids.has(block.id) || ![block.a,block.b].every((value) => typeof value === "string" && value.length <= maxBlockText)) return false;
+    if ((block.fileName !== undefined || block.fileData !== undefined) && !usableDownload(block)) return false;
     if (block.imageData !== undefined && (block.type !== "image" || !usableWorkspaceImage(block.imageData))) return false;
     if ([block.credit,block.license].some(value=>value !== undefined && (typeof value !== "string" || value.length > 160))) return false;
     ids.add(block.id);
@@ -85,7 +90,7 @@ function blockURL(value, asset = false) {
 function blockNumber(value, min, max) {
   return Math.min(max, Math.max(min, Math.round(Number(value)) || 0));
 }
-function renderBlock(block, assets = {}, pageIds = new Set()) {
+function renderBlock(block, assets = {}, pageIds = new Set(), context = {}) {
   const a = esc(block.a), b = esc(block.b), rows = block.a.split("\n").filter((row) => row.trim());
   const url = esc(blockURL(block.b,block.type === "image"));
   switch (block.type) {
@@ -109,10 +114,16 @@ function renderBlock(block, assets = {}, pageIds = new Set()) {
         '<label>'+esc(field)+'<input type="'+(/e-mail|email/i.test(field)?"email":"text")+'" name="field'+index+'" maxlength="1000" required></label>'
       ).join("")+'<button class="lp-button" type="submit">Send response</button><output role="status"></output></form>';
     }
-    case "signin": return (b ? '<p>'+b+'</p>' : "")+'<a class="lp-button" data-product-signin href="/signin-with-chatgpt?return_to=%2F" target="_blank" rel="noopener">'+a+'</a>';
-    case "records": return '<h2>'+a+'</h2><div class="lp-product-records"><label>Search records <input type="search" data-record-search></label><ul>'+block.b.split("\n").filter(Boolean).map(row=>
-      '<li data-product-record>'+esc(row.replaceAll("|"," · "))+'</li>').join("")+'</ul><output role="status"></output></div>';
-    case "downloads": return assetByPath.has(block.b) ? '<a class="lp-button" href="'+esc(assets[block.b] || blockURL(block.b,true))+'" download="'+esc(block.b.split("/").at(-1))+'" target="_blank" rel="noopener">'+a+'</a>' : "";
+    case "signin": if (context?.productData?.customer) return '<p>Signed in to this product.</p><details><summary>Your customer code</summary><code data-customer-code>'+esc(context.productData.customer)+'</code></details>';
+      return (b ? '<p>'+b+'</p>' : "")+'<a class="lp-button" data-product-signin href="/signin-with-chatgpt?return_to=%2F" target="_top" rel="noopener">'+a+'</a>';
+    case "records": {
+      const stored=context?.productData?.records?.[block.id];
+      const rows=Array.isArray(stored) ? stored.map(row=>[row.name,row.details].filter(Boolean).join(" · ")) : block.b.split("\n").filter(Boolean).map(row=>row.replaceAll("|"," · "));
+      return '<h2>'+a+'</h2><div class="lp-product-records"><label>Search records <input type="search" data-record-search></label><ul>'+rows.map(row=>
+      '<li data-product-record>'+esc(row)+'</li>').join("")+'</ul><output role="status"></output></div>';
+    }
+    case "downloads": if (usableDownload(block)) return '<a class="lp-button" data-file-download href="data:application/octet-stream;base64,'+esc(block.fileData)+'" download="'+esc(block.fileName)+'">'+a+'</a>';
+      return assetByPath.has(block.b) ? '<a class="lp-button" href="'+esc(assets[block.b] || blockURL(block.b,true))+'" download="'+esc(block.b.split("/").at(-1))+'" target="_blank" rel="noopener">'+a+'</a>' : "";
     case "integration": return url ? '<a class="lp-button" href="'+url+'" target="_blank" rel="noopener noreferrer">'+a+'</a>' : "";
     case "video": case "audio": return url ? '<'+block.type+' class="lp-media" controls preload="none" aria-label="'+a+'" src="'+url+'"></'+block.type+'>' : '';
     case "button": return pageIds.has(block.pageTarget) ? pageAnchor(block.pageTarget,block.a,"lp-button") : url ? '<a class="lp-button" href="'+url+'" target="_blank" rel="noopener noreferrer">'+a+'</a>' : '';
@@ -182,11 +193,24 @@ function renderBlockInspector() {
     const key = i === 0 ? "a" : "b";
     const multi = ["list","stats","callout","quote","text","faq","checklist","columns","form","records"].includes(block.type) && (i === 1 || !["form","records"].includes(block.type));
     return '<label class="field">'+name+(multi ? '<textarea maxlength="'+maxBlockText+'" data-property="'+key+'">'+esc(block[key])+'</textarea>' : '<input maxlength="'+maxBlockText+'" data-property="'+key+'" value="'+esc(block[key])+'">')+'</label>';
-  }).join("")+(block.type === "image" ? '<button type="button" class="secondary" data-action="workspace-media">Replace image</button>' : "")+(block.type === "button" ? '<label class="field">Open page<select data-property="pageTarget">'+pageOptions(current,block.pageTarget,"Use destination URL")+'</select></label>' : "")+'</div>';
+  }).join("")+(block.type === "downloads" ? '<label class="field">Upload a free download (up to 64 KiB)<input type="file" data-upload-download></label>'+(block.fileName ? '<p>'+esc(block.fileName)+'</p>' : "") : "")+(block.type === "image" ? '<button type="button" class="secondary" data-action="workspace-media">Replace image</button>' : "")+(block.type === "button" ? '<label class="field">Open page<select data-property="pageTarget">'+pageOptions(current,block.pageTarget,"Use destination URL")+'</select></label>' : "")+'</div>';
 }
 function handleBuilder() {
   const root = $(".builder");
   renderBlockStage();
+  root.addEventListener("change",async event=>{
+    if (!event.target.matches("[data-upload-download]")) return;
+    const block=editingPage().blocks.find(item=>item.id===selectedBlock), file=event.target.files[0];
+    if (!file || !block || block.type!=="downloads") return;
+    if (!file.size || file.size>65536) { toast("Choose a file between 1 byte and 64 KiB."); return; }
+    try {
+      const bytes=new Uint8Array(await file.arrayBuffer());
+      const fileData=btoa(Array.from(bytes,byte=>String.fromCharCode(byte)).join(""));
+      const fileName=file.name.replace(/[\/\\\x00-\x1f]/g,"_").slice(0,100);
+      Object.assign(block,{fileData,fileName,b:""});
+      saveEditor(true); renderBlockStage();
+    } catch { toast("The file could not be read."); }
+  });
   $("#show-template").addEventListener("change", (event) => { editingPage().hideTemplate = !event.target.checked; saveEditor(true); });
   function add(type, slot, copy) {
     editingPage().blocks ??= [];
@@ -222,6 +246,7 @@ function handleBuilder() {
     const block = editingPage().blocks.find((item) => item.id === selectedBlock);
     if (!block) return;
     block[key] = event.target.value;
+    if (block.type === "downloads" && key === "b") { delete block.fileName; delete block.fileData; }
     if (block.type === "image" && key === "b") {
       delete block.imageData;
       delete block.credit;

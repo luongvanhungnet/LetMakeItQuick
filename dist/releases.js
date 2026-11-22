@@ -82,6 +82,14 @@ function releaseStudio() {
         '<details><summary>Checks for version '+version.number+'</summary>'+releaseCheckList(version.checks || [])+
           releaseSmokeList(version.smoke)+releaseDeploymentList(version.deployment)+'</details></li>').join("")+'</ul>' : "";
   }
+  async function browserChecks(history) {
+    const live=history.versions.find(item=>item.id===history.live);
+    if (!supportsPages(project.type) || live.metadata.journey==="checkout") return history;
+    status.textContent="Checking the live URL in desktop and mobile views…";
+    const checks=await checkReleaseInBrowser("/launch/"+history.slug,history.live);
+    const saved=await apiJSON("/api/releases/browser-check",jsonOptions({slug:history.slug,versionId:history.live,checks}));
+    return saved.history;
+  }
   function showChecks(issues,smoke) { checksArea.innerHTML = '<h3>Preflight</h3>'+releaseCheckList(issues)+releaseSmokeList(smoke); }
   const localAsset = path => ({exists:assetByPath.has(path) || videoClips.some(clip=>clip.path === path) ||
     path.startsWith("api/workspace/media/")});
@@ -112,6 +120,11 @@ function releaseStudio() {
       stage = data.stage;
       project.releaseSettings = stage.metadata;
       save();
+      if (stage.smoke.passed && supportsPages(project.type) && options.journey!=="checkout") {
+        const checks=await checkReleaseInBrowser("/staging/"+project.id,stage.id);
+        const saved=await apiJSON("/api/releases/stage-check",jsonOptions({projectId:project.id,stageId:stage.id,checks}));
+        stage=saved.stage;
+      }
       showChecks(stage.checks,stage.smoke);
       status.textContent = stage.smoke.passed ? "Staged version is ready to preview." : "Staged with blockers. Review preflight before publishing.";
     });
@@ -134,7 +147,7 @@ function releaseStudio() {
         project.hostedSlug = result.history.slug;
         save();
         if (!form.isConnected) return;
-        history = result.history;
+        history = await browserChecks(result.history);
         form.elements.slug.readOnly = true;
         status.textContent = result.alreadyDeployed ? "This staged version is already in the history." : "Version "+result.version+" is live. Open the release to verify it in your browser.";
       });
@@ -142,7 +155,7 @@ function releaseStudio() {
       void run("Restoring the selected version…",async ()=>{
         const result = await apiJSON("/api/releases/rollback",jsonOptions({slug:history.slug,versionId:button.dataset.version}));
         if (!form.isConnected) return;
-        history = result.history;
+        history = await browserChecks(result.history);
         status.textContent = "The selected version is now live at the same URL.";
       });
     }
@@ -181,6 +194,7 @@ async function mountHostedRelease() {
     const result = await apiJSON("/api/releases/"+(staging?"staging/":"view/")+encodeURIComponent(reference));
     activeVersion = staging ? result.stage : result.release;
     const project = readSnapshot("#view="+activeVersion.snapshot);
+    const browserCheck=window.parent!==window ? new URLSearchParams(location.search).get("studio_check") : "";
     const slug = staging ? activeVersion.metadata.slug : reference;
     document.title = staging ? "Staging · "+activeVersion.metadata.title : activeVersion.metadata.title;
     const checkout = staging && activeVersion.metadata.journey === "checkout"
@@ -193,7 +207,7 @@ async function mountHostedRelease() {
     const content = target.querySelector(".release-preview-body");
     if (project.type === "video") { const player = mountVideo(content,project.video); stopPublishedGame = ()=>player.dispose(); }
     else if (isGameType(project.type)) stopPublishedGame = mountGame(content,project,true);
-    else stopPublishedGame = mountPublishedPages(content,project,{slug,mode:staging?"test":"live",releaseId:activeVersion.id});
+    else stopPublishedGame = mountPublishedPages(content,project,{slug,mode:staging || browserCheck?"test":"live",browserCheck,journey:activeVersion.metadata.journey,releaseId:activeVersion.id,productData:result.productData,returnPath:location.pathname+location.search});
     if (staging) {
       target.querySelectorAll("[data-release-size]").forEach(button=>button.addEventListener("click",()=>{
         content.classList.toggle("release-mobile",button.dataset.releaseSize === "mobile");

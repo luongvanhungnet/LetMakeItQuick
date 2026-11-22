@@ -201,11 +201,12 @@ function projectHTML(p,imageOverride,assets,start = homePage,checklists,context)
     return '<div tabindex="-1" data-project-page="'+esc(id)+'" style="--accent:'+localColor+'" '+(id === active ? "" : "hidden")+'>'+base+blocks+'</div>';
   }).join("");
   const script = 'const checks=('+projectChecklistStore.toString()+')();('+runPageNavigation.toString()+')();'+
-    (isApp ? '('+runPageChecklists.toString()+')(checks);' : "")+'('+blockInteraction.toString()+')(checks);'+(typeof runWorkspaceBlocks === "function" ? '('+runWorkspaceBlocks.toString()+')('+JSON.stringify({mode:context?.mode || "sample",slug:context?.slug || ""}).replaceAll("<","\\u003c")+');' : '');
+    (isApp ? '('+runPageChecklists.toString()+')(checks);' : "")+'('+blockInteraction.toString()+')(checks);'+(typeof runWorkspaceBlocks === "function" ? '('+runWorkspaceBlocks.toString()+')('+JSON.stringify({mode:context?.mode || "sample",slug:context?.slug || "",returnPath:context?.returnPath || ""}).replaceAll("<","\\u003c")+');' : '');
+  const checkScript=context?.browserCheck ? "("+verifyRenderedProduct.toString()+")("+JSON.stringify(context.journey)+");" : "";
   const storage = checklists ? ' data-checklist-state="'+esc(JSON.stringify(checklists))+'"' : "";
   const productMode = context?.mode === "live" ? "production" : context?.mode === "test" ? "staging" : "sample";
   const navCSS = 'header nav{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:8px}header nav a{text-decoration:none;font-size:14px}header nav a[aria-current=page]{font-weight:750;text-decoration:underline;text-underline-offset:4px}[data-project-page][hidden]{display:none}.template-credit{padding:18px clamp(18px,5vw,56px);color:#635c70}';
-  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(p.name)+'</title><style>'+projectCSS(color)+blockProjectCSS+(typeof workspaceProductCSS === "string" ? workspaceProductCSS : "")+navCSS+'</style></head><body class="'+(isApp?"app":"website")+'"'+storage+' data-product-mode="'+productMode+'"><main><header><strong>'+esc(p.name)+'</strong>'+navigation+'</header>'+markup+renderTemplateCredit(p)+'</main><script>'+script+'</script></body></html>';
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(p.name)+'</title><style>'+projectCSS(color)+blockProjectCSS+(typeof workspaceProductCSS === "string" ? workspaceProductCSS : "")+navCSS+'</style></head><body class="'+(isApp?"app":"website")+'"'+storage+' data-product-mode="'+productMode+'"><main><header><strong>'+esc(p.name)+'</strong>'+navigation+'</header>'+markup+renderTemplateCredit(p)+'</main><script>'+script+checkScript+'</script></body></html>';
 }
 function projectCSS(color) {
   return ':root{--accent:'+color+';font-family:system-ui,sans-serif;color:#201b29;background:#faf9fc}*{box-sizing:border-box}body{margin:0}main{max-width:1240px;margin:auto}header{padding:19px clamp(18px,5vw,56px);background:white;border-bottom:1px solid #eae5ef;font-size:17px}.intro{padding:clamp(30px,7vw,76px) clamp(18px,5vw,56px);display:grid;align-items:center;gap:20px;background:color-mix(in srgb,var(--accent) 10%,white)}.with-photo{grid-template-columns:1fr 1fr}.intro img{width:100%;height:clamp(170px,26vw,390px);object-fit:cover;border-radius:14px}h1{font-size:clamp(34px,6vw,78px);line-height:1.02;letter-spacing:-.055em;margin:0 0 16px}p{font-size:17px;line-height:1.55;margin:0;white-space:pre-wrap}h1,h2,p,strong,span{overflow-wrap:anywhere}.cta{display:inline-block;margin-top:20px;padding:11px 16px;border-radius:8px;background:var(--accent);color:white;text-decoration:none;font-weight:700;text-shadow:0 1px 3px #0008}section{padding:28px clamp(18px,5vw,56px)}h2{margin:0 0 15px;font-size:28px;letter-spacing:-.025em}.app main{max-width:650px;min-height:100vh;background:white}.app .intro{border-radius:15px;margin:14px;padding:23px}.app section{padding:14px 18px 30px}.tasks{display:grid;gap:8px}.tasks label{display:flex;align-items:center;gap:10px;border:1px solid #eae5ef;border-radius:9px;padding:11px;cursor:pointer}.tasks input{width:19px;height:19px;accent-color:var(--accent);flex:none}.tasks input:checked+span{text-decoration:line-through;color:#686270}.progress{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;font-size:14px}.progress button{font:inherit;background:none;border:1px solid #ddd5e8;border-radius:7px;padding:4px 10px;cursor:pointer}@media(max-width:520px){.with-photo{grid-template-columns:1fr}}';
@@ -219,7 +220,7 @@ function snapshotProject(p) {
   function pageContent(content) {
     const result = pick(content,["buttonTarget"]);
     if (content.hideTemplate === true) result.hideTemplate = true;
-    if (content.blocks?.length) result.blocks = content.blocks.map(block=>pick(block,["id","type","a","b","pageTarget","imageData","credit","license"]));
+    if (content.blocks?.length) result.blocks = content.blocks.map(block=>pick(block,["id","type","a","b","pageTarget","imageData","credit","license","fileName","fileData"]));
     return result;
   }
   if (isGameType(p.type)) snapshot.game = pick(p.game,["background","time","cells","wallHeight"]);
@@ -314,7 +315,7 @@ function mountPublishedPages(target,project,context) {
   const frame = document.createElement("iframe");
   frame.className = "published-view";
   frame.title = document.title;
-  frame.setAttribute("sandbox","allow-scripts allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox");
+  frame.setAttribute("sandbox","allow-scripts allow-forms allow-downloads allow-popups allow-popups-to-escape-sandbox"+(context?.mode === "live" || context?.mode === "test" ? " allow-top-navigation-by-user-activation" : ""));
 
   const scope = context?.slug ? "launch:"+context.slug : location.hash || location.pathname+location.search, keys = new Map(), values = {};
   for (const {id,content} of projectPages(project)) {
@@ -337,6 +338,14 @@ function mountPublishedPages(target,project,context) {
   }
   if (keys.size) window.addEventListener("message",saveChecks);
   frame.srcdoc = projectHTML(project,undefined,undefined,homePage,keys.size ? values : undefined,context);
+  if (context?.browserCheck) {
+    const receive=event=>{
+      if (event.source!==frame.contentWindow || event.data?.kind!=="launchpad-render-check") return;
+      window.removeEventListener("message",receive);
+      parent.postMessage({token:context.browserCheck,id:context.releaseId,issues:event.data.issues},location.origin);
+    };
+    window.addEventListener("message",receive);
+  }
   target.replaceChildren(frame);
   const stopForms = context && typeof bindWorkspaceForms === "function" ? bindWorkspaceForms(frame,context) : null;
   return () => { window.removeEventListener("message",saveChecks); stopForms?.(); };

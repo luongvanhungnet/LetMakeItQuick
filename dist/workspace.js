@@ -127,7 +127,7 @@ async function openWorkspace() {
     '<section id="workspace-cloud" class="workspace-section" hidden></section><details id="workspace-privacy" class="workspace-section" hidden><summary>Cloud data and privacy</summary>'+
     '<p class="subtext">Export the current versions of your cloud drafts, staged projects, and production form responses.</p>'+
     '<div class="dialog-actions"><a class="secondary" href="/api/workspace/export" download>Export cloud data</a></div>'+
-    '<p class="subtext">Deleting cloud data removes draft history, staged versions, form responses, operations data, and your team data. Local drafts, published releases, checkout records, and your ChatGPT account are kept.</p>'+
+    '<p class="subtext">Deleting cloud data removes draft history, staged versions, form responses, environment records, operations data, and your team data. Local drafts, published releases, checkout records, and your ChatGPT account are kept. To request deletion of the platform account, visit the <a href="https://privacy.openai.com/" target="_blank" rel="noopener">OpenAI Privacy Portal</a>.</p>'+
     '<form id="workspace-delete"><label class="field">Type DELETE to confirm<input name="confirmation" required autocomplete="off"></label>'+
     '<button class="secondary" type="submit">Delete cloud data</button><p class="subtext" id="workspace-delete-status" role="status"></p></form></details>');
   const pane = $("#workspace-cloud"), state = $("#cloud-state");
@@ -354,7 +354,8 @@ async function openWorkspaceData() {
     '<label class="field">Integration URL (HTTPS)<input name="integration" maxlength="500" value="'+esc(config.integration)+'"></label>'+
     '<label class="field">Runtime secret names (one per line)<textarea name="secretNames" maxlength="600">'+esc(config.secretNames)+'</textarea></label>'+
     '<p class="subtext">Set secret values in the deployment environment. This editor stores only variable names.</p><div class="dialog-actions"><button class="primary" type="submit">Save data settings</button></div></form>'+
-    '<section class="workspace-section"><h3>Production form inbox</h3><div id="workspace-form-inbox" class="subtext">Checking cloud connection…</div></section>');
+    '<section class="workspace-section"><h3>Hosted records</h3><div id="environment-records"></div></section><section class="workspace-section"><h3>Production form inbox</h3><div id="workspace-form-inbox" class="subtext">Checking cloud connection…</div></section>');
+  void manageEnvironmentRows(draft,$("#environment-records"));
   const form = $("#workspace-data-form"), inbox = $("#workspace-form-inbox");
   form.addEventListener("submit",event=>{
     event.preventDefault();
@@ -373,15 +374,15 @@ async function openWorkspaceData() {
   } catch (error) { inbox.textContent = error.message; }
 }
 
-function runWorkspaceBlocks({mode = "sample",slug = ""} = {}) {
+function runWorkspaceBlocks({mode = "sample",slug = "",returnPath = ""} = {}) {
   for (const link of document.querySelectorAll("[data-product-signin]")) {
-    const returnPath = /^[a-z\d-]{1,90}$/.test(slug) ? "/launch/"+slug : "/";
+    const destination = /^\/(?!\/)[^\\]*$/.test(returnPath) ? returnPath : /^[a-z\d-]{1,90}$/.test(slug) ? "/launch/"+slug : "/";
     if (window.parent === window && window.location.protocol === "file:") {
       const note = document.createElement("p");
       note.textContent = "Open the hosted product to sign in.";
       link.replaceWith(note);
     } else {
-      link.href = "/signin-with-chatgpt?return_to="+encodeURIComponent(returnPath);
+      link.href = "/signin-with-chatgpt?return_to="+encodeURIComponent(destination);
     }
   }
   const origin = window.location.origin;
@@ -448,3 +449,56 @@ function bindWorkspaceForms(frame,context) {
 }
 
 const workspaceProductCSS = '.lp-product-form,.lp-product-records{display:grid;gap:8px;max-width:640px}.lp-product-form label{display:grid;gap:4px}.lp-product-form input,.lp-product-records input{width:100%;font:inherit;border:1px solid #d5cfdd;border-radius:7px;padding:8px}.lp-product-form button{justify-self:start;border:0;cursor:pointer;font:inherit}.lp-product-records ul{display:grid;gap:8px;list-style:none;padding:0}.lp-product-records li{padding:9px;background:#f3f0f8;border-radius:7px}.lp-media-credit{font-size:.875em;color:#5b5364;margin-top:5px}';
+
+async function manageEnvironmentRows(draft,panel) {
+  const lists=projectPages(draft).flatMap(({name,content})=>(content.blocks || []).filter(block=>block.type==="records").map(block=>({id:block.id,title:name+" · "+block.a})));
+  if (!lists.length) { panel.textContent="Add a searchable records block to manage its data."; return; }
+  panel.innerHTML='<label class="field">Environment<select name="environment"><option value="staging">Staging</option><option value="production">Production</option></select></label>'+
+    '<label class="field">Records block<select name="list">'+lists.map(list=>'<option value="'+esc(list.id)+'">'+esc(list.title)+'</option>').join("")+'</select></label>'+
+    '<div data-environment-body></div><p role="status" data-environment-status></p>';
+  const environment=panel.querySelector('[name="environment"]'), list=panel.querySelector('[name="list"]');
+  const body=panel.querySelector("[data-environment-body]"), status=panel.querySelector("[data-environment-status]");
+  let version=0;
+  async function load() {
+    const serial=++version, path="/drafts/"+draft.id+"/environments/"+environment.value, id=list.value;
+    body.replaceChildren(); status.textContent="Loading records…";
+    try {
+      const config=await workspaceRequest(path);
+      if (serial!==version || !panel.isConnected) return;
+      const data=config.lists[id];
+      status.textContent=data ? "" : "This list currently uses the sample rows from the block.";
+      body.innerHTML='<form><div data-rows></div><button class="secondary" type="button" data-add-row>Add record</button>'+
+        '<label class="field">Records feed<select name="connector"><option value="">Manual entries</option>'+
+        config.connectors.map(name=>'<option>'+esc(name)+'</option>').join("")+'</select></label><div class="dialog-actions">'+
+        '<button class="primary" type="submit">Save records</button><button class="secondary" data-refresh type="button">Refresh from feed</button>'+
+        '<button class="secondary" data-sample type="button">Use sample rows</button></div></form>';
+      const form=body.querySelector("form"), rows=form.querySelector("[data-rows]");
+      function add(row={}) {
+        const field=document.createElement("fieldset");
+        field.innerHTML='<label class="field">Record name<input name="recordName" required maxlength="100" value="'+esc(row.name || "")+'"></label>'+
+          '<label class="field">Details<textarea name="details" maxlength="400">'+esc(row.details || "")+'</textarea></label>'+
+          '<label class="field">Customer code (leave blank for everyone)<input name="customer" maxlength="64" pattern="[a-f0-9]{64}" value="'+esc(row.customer || "")+'"></label>'+
+          '<button type="button" class="secondary">Remove record</button>';
+        field.querySelector("button").onclick=()=>field.remove(); rows.append(field);
+      }
+      for (const row of data?.rows || []) add(row);
+      form.elements.connector.value=data?.connector || "";
+      form.querySelector("[data-add-row]").onclick=()=>add();
+      async function saveRows(flags) {
+        const entries=[...rows.children].map(field=>({name:field.querySelector('[name="recordName"]').value,details:field.querySelector('[name="details"]').value,customer:field.querySelector('[name="customer"]').value}));
+        const payload={revision:config.revision,blockId:id,rows:entries,connector:form.elements.connector.value,...flags};
+        for (const control of form.elements) control.disabled=true;
+        try {
+          await workspaceRequest(path,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+          if (serial===version) { await load(); status.textContent="Environment records saved."; }
+        } catch (error) { if (serial===version) status.textContent=error.message; }
+        finally { for (const control of form.elements) control.disabled=false; }
+      }
+      form.onsubmit=event=>{event.preventDefault(); void saveRows({});};
+      form.querySelector("[data-refresh]").onclick=()=>void saveRows({refresh:true});
+      form.querySelector("[data-sample]").onclick=()=>void saveRows({useSample:true});
+    } catch (error) { if (serial===version) status.textContent=error.message; }
+  }
+  list.onchange=environment.onchange=load;
+  await load();
+}

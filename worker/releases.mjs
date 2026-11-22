@@ -157,7 +157,8 @@ async function handleReleases(request,env,shell) {
           } catch {}
         }
         const {id,number,snapshot,metadata,createdAt} = live.release;
-        return releaseJSON({slug:live.slug,release:{id,number,snapshot,metadata,createdAt},supportUrl});
+        const productData=await productViewData(env,live.owner,live.projectId,workspacePrincipal(request),"production");
+        return releaseJSON({slug:live.slug,productData,release:{id,number,snapshot,metadata,createdAt},supportUrl});
       }
       if (typeof recordReleaseVisit === "function" && request.method === "GET") {
         try { await recordReleaseVisit(request,env,live.owner,{...live.release,projectId:live.projectId,slug:live.slug},"live"); }
@@ -176,7 +177,7 @@ async function handleReleases(request,env,shell) {
           const offer = await readData(env,"commerce-offers",stage.projectId);
           if (offer?.owner === owner && offer.active) checkout = {id:offer.id,version:offer.version};
         }
-        return releaseJSON({stage,checkout});
+        return releaseJSON({stage,checkout,productData:await productViewData(env,owner,stage.projectId,owner,"staging")});
       }
       if (typeof recordReleaseVisit === "function" && request.method === "GET") {
         try { await recordReleaseVisit(request,env,owner,{id:stage.id,projectId:stage.projectId,slug:stage.metadata.slug},"test"); }
@@ -216,6 +217,28 @@ async function handleReleases(request,env,shell) {
       return releaseJSON({stage},201);
     }
 
+    if (path === "/api/releases/browser-check" || path === "/api/releases/stage-check") {
+      if (!Array.isArray(body.checks) || body.checks.length!==2 || !body.checks.every((check,index)=>
+        typeof check?.label==="string" && check.label.startsWith((index?"Mobile":"Desktop")+" browser journey") &&
+        check.label.length<300 && ["passed","failed"].includes(check.status))) return releaseReject("Invalid browser check.",400);
+      const checks=body.checks.map(({label,status})=>({label,status})), passed=checks.every(check=>check.status==="passed");
+      if (path.endsWith("/stage-check")) {
+        const stage=await loadReleaseStage(env,owner,body.projectId);
+        if (!stage || stage.id!==body.stageId) return releaseReject("The staged version changed.",409);
+        const previous=stage.smoke.checks.filter(c=>!c.label.includes("browser journey"));
+        const next={...stage,smoke:{...stage.smoke,passed:passed && previous.every(c=>c.status!=="failed"),checks:[...previous,...checks]}};
+        if (!await dataCompareAndSwap(env,"release-staging:"+owner,body.projectId,stage,next)) return releaseReject("The staged version changed.",409);
+        return releaseJSON({stage:next});
+      }
+      if (!releaseSlugPattern.test(body.slug)) return releaseReject("Invalid release.",400);
+      const doc=await readData(env,"release-slugs",body.slug);
+      if (!doc || doc.owner!==owner || doc.live!==body.versionId) return releaseReject("The live release changed.",409);
+      const next={...doc,versions:doc.versions.map(v=>v.id!==doc.live ? v : {...v,deployment:{
+        status:passed?"live":"needs-review",checkedAt:new Date().toISOString(),checks:[...v.deployment.checks.filter(c=>c.label!=="Browser interactions"&&!c.label.includes("browser journey")), ...checks]}})};
+      if (!await dataCompareAndSwap(env,"release-slugs",body.slug,doc,next)) return releaseReject("The live release changed.",409);
+      return releaseJSON({history:releaseHistory(next,body.slug,env)});
+    }
+
     if (path === "/api/releases/publish") {
       if (typeof body.projectId !== "string" || typeof body.stageId !== "string") return releaseReject("Choose a staged release first.",400);
       const stage = await loadReleaseStage(env,owner,body.projectId);
@@ -223,6 +246,7 @@ async function handleReleases(request,env,shell) {
       if (typeof teamReleaseBlock === "function" && await teamReleaseBlock(env,owner,body.projectId,stage.id)) {
         return releaseReject("A project reviewer must approve this staged version before publishing.",409);
       }
+      if (!stage.smoke.passed) return releaseReject("Resolve the staging checks before publishing.",422);
       return await releaseDeploy(env,owner,stage);
     }
 

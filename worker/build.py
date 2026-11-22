@@ -20,10 +20,20 @@ out = static / "server" / "index.js"
 out.parent.mkdir(exist_ok=True)
 modules = [root / "worker" / "data.mjs", static / "release-model.js"]
 modules.extend(root / "worker" / module for module in [
-    "workspace.mjs", "releases.mjs", "operations.mjs", "commerce.mjs", "catalog.mjs", "team.mjs"
+    "workspace.mjs", "product-data.mjs", "releases.mjs", "operations.mjs", "commerce.mjs", "catalog.mjs", "team.mjs"
 ])
 parts = [re.sub(r"^export (?=(?:async )?function |const |class )", "", module.read_text(encoding="utf-8"), flags=re.M)
          for module in modules]
 out.write_text("const siteAssets = " + json.dumps(assets, ensure_ascii=False) + ";\n" +
                "\n;\n".join(parts + [(root / "worker" / "index.mjs").read_text(encoding="utf-8")]),
                encoding="utf-8")
+
+# Include the hosting declaration and schema migrations in the deployable artifact.
+import shutil
+manifest = root / ".openai" / "hosting.json"
+(static / ".openai").mkdir(exist_ok=True)
+shutil.copyfile(manifest, static / ".openai" / "hosting.json")
+migrations = out.parent / "migrations"
+migrations.mkdir(exist_ok=True)
+for migration in (root / "worker" / "migrations").glob("*.sql"):
+    shutil.copyfile(migration, migrations / migration.name)

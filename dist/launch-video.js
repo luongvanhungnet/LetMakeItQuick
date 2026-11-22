@@ -122,12 +122,51 @@ async function compactScreenshot(file) {
     paint.fillStyle = "#161028";
     paint.fillRect(0,0,canvas.width,canvas.height);
     paint.drawImage(bitmap,0,0,canvas.width,canvas.height);
-    for (const quality of [.8,.65,.48,.32]) {
-      const path = canvas.toDataURL("image/jpeg",quality);
-      if (validMediaData(path,"image",launchImageLimit)) return {name:file.name.slice(0,100),path};
-    }
-    throw Error("A screenshot is too detailed to store. Crop or resize it and retry.");
+    return screenshotJPEG(canvas,file.name);
   } finally { bitmap.close(); }
+}
+function screenshotJPEG(canvas,name) {
+  for (const quality of [.8,.65,.48,.32]) {
+    const path = canvas.toDataURL("image/jpeg",quality);
+    if (validMediaData(path,"image",launchImageLimit)) return {name:name.slice(0,100),path};
+  }
+  throw Error("The screenshot is too detailed. Choose a cropped image and retry.");
+}
+async function captureProductScreenshot(product,pageId) {
+  const page = projectPages(product).find(item=>item.id === pageId);
+  if (!page) throw Error("Select a product page to capture.");
+  const html = await buildStandaloneHTML(product);
+  const doc = new DOMParser().parseFromString(html,"text/html");
+  doc.querySelectorAll("script").forEach(script=>script.remove());
+  for (const section of doc.querySelectorAll("[data-project-page]")) {
+    if (section.dataset.projectPage !== pageId) section.remove();
+    else section.hidden = false;
+  }
+  for (const image of doc.querySelectorAll("img")) {
+    if (!image.getAttribute("src")?.startsWith("data:image/")) throw Error("This page uses an external image. Upload a screenshot or choose a different page.");
+    image.removeAttribute("loading");
+  }
+  doc.querySelectorAll("video,audio").forEach(media=>media.removeAttribute("src"));
+  const canvas = document.createElement("canvas");
+  canvas.width = product.type === "app" ? 390 : 960;
+  canvas.height = product.type === "app" ? 780 : 540;
+  const xml = new XMLSerializer();
+  const styles = [...doc.querySelectorAll("style")].map(style=>xml.serializeToString(style)).join("");
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+canvas.width+'" height="'+canvas.height+'">'+
+    '<foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml">'+styles+
+    xml.serializeToString(doc.body)+'</div></foreignObject></svg>';
+  const rendered = new Image();
+  rendered.src = "data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+  try {
+    await rendered.decode();
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#faf9fc";
+    context.fillRect(0,0,canvas.width,canvas.height);
+    context.drawImage(rendered,0,0);
+    return screenshotJPEG(canvas,page.name+" · "+product.name);
+  } catch {
+    throw Error("The browser could not capture this page. Choose a screenshot file or use the library backdrop.");
+  }
 }
 function openLaunchAd(product, release) {
   let sourceRelease = release;
@@ -145,6 +184,9 @@ function openLaunchAd(product, release) {
     '<label class="field">Key features, one per line<textarea name="features" maxlength="400">'+esc(product.details?.split(/\n/).slice(0,3).join("\n").slice(0,400) || "")+'</textarea></label>'+
     '<label class="field">Call to action<input name="cta" maxlength="80" value="'+esc(product.button || "Explore the product")+'" required></label>'+
     '<label class="field">Library backdrop<select name="asset"><option value="">Solid brand color</option>'+mediaLibrary.filter(asset=>asset.role === "background").map(asset=>'<option value="'+esc(asset.id)+'" '+(asset.id === templateAsset ? "selected" : "")+'>'+esc(asset.name)+'</option>').join("")+'</select></label>'+
+    (supportsPages(product.type) ? '<label class="field">Capture a product page<select name="capture">'+
+      projectPages(product).map(page=>'<option value="'+esc(page.id)+'">'+esc(page.name)+'</option>').join("")+
+      '<option value="">Use library backdrop</option></select></label>' : "")+
     '<label class="field">Product screenshots (optional)<input name="screenshots" type="file" accept="image/png,image/jpeg,image/webp" multiple></label>'+
     '<label class="launch-ad-rights"><input type="checkbox" name="rights"> I have permission to use the uploaded screenshots.</label>'+
     '<p class="subtext" id="launch-ad-status" role="status"></p><div class="dialog-actions"><button class="primary" type="submit">Create editable ad</button></div></form>');
@@ -175,6 +217,10 @@ function openLaunchAd(product, release) {
     status.textContent = files.length ? "Preparing screenshots…" : "Building your timeline…";
     try {
       const screenshots = Object.fromEntries(await Promise.all(files.map(async file => ["screenshot-"+crypto.randomUUID(),await compactScreenshot(file)])));
+      if (!files.length && data.get("capture")) {
+        status.textContent = "Capturing product page…";
+        screenshots["screenshot-"+crypto.randomUUID()] = await captureProductScreenshot(product,data.get("capture"));
+      }
       if (!form.isConnected || !modal.open) return;
       const ad = launchAdDraft(product,{
         style:data.get("style"),format:data.get("format"),url:url.href,

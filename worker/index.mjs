@@ -93,6 +93,15 @@ export default {
   async scheduled(_event,env) { await runScheduledOperations(env); },
   async fetch(request,env) {
     const path = new URL(request.url).pathname;
+    if (env.LAUNCHPAD_STUDIO_OWNER_EMAIL && request.headers.get("oai-authenticated-user-email")?.toLowerCase() !== env.LAUNCHPAD_STUDIO_OWNER_EMAIL.toLowerCase()) {
+      const publicRoute=path.startsWith("/launch/") || path.startsWith("/api/releases/view/") ||
+        path.startsWith("/api/workspace/forms/") || path==="/api/operations/report" || getReleaseDomainSlug(request,env) ||
+        (Object.hasOwn(siteAssets,path) && path!=="/" && path!=="/index.html");
+      if (!publicRoute) {
+        if (path==="/" && !workspacePrincipal(request)) return Response.redirect(new URL("/signin-with-chatgpt?return_to=%2F",request.url),302);
+        return api({error:"Creator workspace access required."},workspacePrincipal(request) ? 403 : 401);
+      }
+    }
     if (path === "/api/ai") return handleAI(request,env);
     try {
       if (path === "/api/team" || path.startsWith("/api/team/")) return await handleTeam(request,env);

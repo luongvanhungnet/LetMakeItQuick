@@ -1,5 +1,5 @@
 import {test,expect} from "@playwright/test";
-import {readFile} from "node:fs/promises";
+import {readFile,writeFile} from "node:fs/promises";
 
 const key = "launchpad-projects-v1";
 function wavSample() {
@@ -72,7 +72,7 @@ test("launch ad generates editable scenes, campaign copy, a thumbnail and captio
   expect(Object.keys(saved.video.uploads)).toHaveLength(1);
 });
 
-test("video export mixes the approved audio into the downloadable file",async ({page})=>{
+test("video export mixes the approved audio into the downloadable file",async ({page},info)=>{
   await page.addInitScript(()=>{
     const supports = MediaRecorder.isTypeSupported.bind(MediaRecorder);
     MediaRecorder.isTypeSupported = value=>!value.startsWith("video/mp4") && supports(value);
@@ -89,10 +89,14 @@ test("video export mixes the approved audio into the downloadable file",async ({
   await page.locator("#video-audio-rights").check();
   await page.locator("[data-video-audio=music]").setInputFiles(wavSample());
   await expect(page.getByText("test-tone.wav")).toBeVisible();
+  const captionFile = page.waitForEvent("download");
+  await page.getByRole("button",{name:"Download captions (.vtt)"}).click();
+  await (await captionFile).saveAs(info.outputPath("sound-test.vtt"));
   const recording = page.waitForEvent("download");
   await page.locator("[data-action=export-video]").click();
   const asset = await recording;
   expect(asset.suggestedFilename()).toBe("sound-test.webm");
+  await asset.saveAs(info.outputPath(asset.suggestedFilename()));
   const bytes = await readFile(await asset.path());
   const recorded = await page.evaluate(async encoded=>{
     const data = Uint8Array.from(atob(encoded),char=>char.charCodeAt(0));
@@ -107,4 +111,44 @@ test("video export mixes the approved audio into the downloadable file",async ({
   },bytes.toString("base64"));
   expect(recorded.duration).toBeGreaterThan(.75);
   expect(recorded.amplitude).toBeGreaterThan(.005);
+});
+
+test("the ad captures the selected product page directly into its scenes",async ({page},info)=>{
+  await page.goto("/");
+  await page.evaluate(()=>{
+    const product = {...blank("web"),id:crypto.randomUUID(),name:"Daybook",link:"https://example.org/daybook",pages:[
+      {...blank("web"),id:crypto.randomUUID(),name:"Features",title:"Custom features",color:"#008000"}
+    ]};
+    localStorage.setItem(storageKey,JSON.stringify([product]));
+  });
+  await page.reload();
+  await page.locator(".top-actions [data-action=projects]").click();
+  await page.getByRole("button",{name:/Daybook/}).click();
+  await page.locator("[data-action=launch-ad]").click();
+  await page.getByLabel("Capture a product page").selectOption({label:"Features"});
+  await page.getByRole("button",{name:"Create editable ad"}).click();
+  await expect(page.locator(".project-heading h1")).toHaveText("Daybook launch ad");
+  const captured = await page.evaluate(()=>{
+    const video = JSON.parse(localStorage.getItem(storageKey))[0].video;
+    return video.uploads[video.scenes[0].asset];
+  });
+  expect(captured.name).toContain("Features");
+  expect(captured.path).toMatch(/^data:image\/jpeg;base64,/);
+  await writeFile(info.outputPath("captured-page.jpg"),Buffer.from(captured.path.split(",")[1],"base64"));
+  const pixels = await page.evaluate(async path=>{
+    const image = new Image();
+    image.src = path;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width; canvas.height = image.height;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image,0,0);
+    const pixels = ctx.getImageData(0,0,canvas.width,canvas.height).data;
+    let green=0;
+    for (let i=0;i<pixels.length;i+=4) if (pixels[i+1]>90 && pixels[i+1] > pixels[i]*2 && pixels[i+1] > pixels[i+2]*2) green++;
+    return {width:image.width,height:image.height,green};
+  },captured.path);
+  expect(pixels.width).toBe(960);
+  expect(pixels.height).toBe(540);
+  expect(pixels.green).toBeGreaterThan(200);
 });

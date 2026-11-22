@@ -146,3 +146,31 @@ test("custom host aliases serve only the intended public release with an alias c
   assert.equal((await call(alias)).status,404);
   assert.equal((await call("/launch/trail-club")).status,200);
 });
+
+test("published product records isolate customers, staging and creators, keeping scoped backups",async t=>{
+  const id=crypto.randomUUID(), blockId=crypto.randomUUID(), slug="records-app";
+  const {call,stage,publish}=session(t);
+  const draft={...project,id,blocks:[{id:blockId,type:"records",a:"Invoices",b:"Examples"}]};
+  const path="/api/workspace/drafts/"+id;
+  assert.equal((await call(path,{method:"PUT",body:{draft,expected:null}})).status,200);
+  const {id:revision}= (await (await stage({...project,blocks:draft.blocks},{...fixtureMeta,slug},"owner",id)).json()).stage;
+  assert.equal((await publish(revision,"owner",id)).status,201);
+  const view=async viewer=>(await (await call("/api/releases/view/"+slug,{owner:viewer})).json()).productData;
+  const alice=(await view("alice")).customer;
+  const rows=[{name:"General",details:"Everyone"},{name:"Invoice",details:"Personal",customer:alice}];
+  for (const [environment,entries] of [["staging",[{name:"Mock",details:"Preview"}]],["production",rows]]) {
+    const url=path+"/environments/"+environment;
+    const body={blockId,revision:null,rows:entries};
+    assert.equal((await call(url,{method:"PUT",body,owner:"stranger"})).status,404);
+    assert.equal((await call(url,{method:"PUT",body})).status,200);
+    assert.equal((await call(url,{method:"PUT",body})).status,409);
+  }
+  assert.deepEqual((await view(null)).records[blockId].map(row=>row.name),["General"]);
+  assert.deepEqual((await view("bob")).records[blockId].map(row=>row.name),["General"]);
+  assert.deepEqual((await view("alice")).records[blockId].map(row=>row.name),["General","Invoice"]);
+  const preview=await (await call("/api/releases/staging/"+id)).json();
+  assert.deepEqual(preview.productData.records[blockId].map(row=>row.name),["Mock"]);
+  assert.equal((await (await call("/api/workspace/export")).json()).environments.length,2);
+  assert.equal((await call("/api/workspace/delete",{method:"POST",body:{confirmation:"DELETE"}})).status,200);
+  assert.deepEqual((await view("alice")).records,{});
+});

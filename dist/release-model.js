@@ -55,10 +55,12 @@ function releaseProjectFromSnapshot(code) {
     if (!Array.isArray(items) || items.length>30) return false;
     const seen = new Set();
     return items.every(item=>{
-      if (!releaseKeys(item,["id","type","a","b","pageTarget","imageData","credit","license"]) ||
+      if (!releaseKeys(item,["id","type","a","b","pageTarget","imageData","credit","license","fileData","fileName"]) ||
         typeof item.id !== "string" || !uuid.test(item.id) || seen.has(item.id) || !releaseBlockTypes.has(item.type) ||
         !validString(item.a,700) || !validString(item.b,700) ||
         (item.pageTarget !== undefined && (item.type !== "button" || !validString(item.pageTarget,36))) ||
+        ((item.fileData !== undefined || item.fileName !== undefined) && (item.type !== "downloads" || !validString(item.fileName,100) || !item.fileName || /[\/\\\x00-\x1f]/.test(item.fileName) ||
+          !validString(item.fileData,87384) || !item.fileData || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(item.fileData))) ||
         (item.imageData !== undefined && (item.type !== "image" || !validString(item.imageData,101024))) ||
         [item.credit,item.license].some(value=>value !== undefined && !validString(value,160))) return false;
       seen.add(item.id);
@@ -185,7 +187,7 @@ function releasePreflight(project,metadata,assetInfo) {
       if (block.type === "form") {
         if (!block.a?.trim?.() || typeof block.b !== "string" || !block.b.trim()) add("block","form-fields","Give the form a heading and at least one labeled field.",location);
       }
-      if (block.type === "downloads") media(block.b,"download",location);
+      if (block.type === "downloads" && !block.fileData) media(block.b,"download",location);
       if (block.type === "integration" && !releaseHTTPS(block.b)) add("block","integration","An integration link must use HTTPS.",location);
     }
   }

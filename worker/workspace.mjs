@@ -120,6 +120,8 @@ async function handleWorkspace(request,env) {
     const form = /^\/api\/workspace\/forms\/([a-z\d-]{1,90})\/([a-f\d-]{36})$/.exec(path);
     if (form) return await workspaceFormSubmit(request,env,form[1],form[2]);
     if (!owner) return api({error:"Sign in to access cloud drafts."},401);
+    const environmentRoute = /^\/api\/workspace\/drafts\/([a-f0-9-]{36})\/environments\/(staging|production)$/.exec(path);
+    if (environmentRoute) return await manageProductData(request,env,owner,environmentRoute[1],environmentRoute[2]);
     if (path === "/api/workspace/export" && request.method === "GET") return exportWorkspaceData(env,owner);
     if (path === "/api/workspace/delete" && request.method === "POST") {
       const {confirmation} = await workspaceInput(request,128);
@@ -193,6 +195,14 @@ async function* workspaceExportChunks(env,owner) {
       first = false;
     }
   }
+  yield '],"environments":[';
+  first = true;
+  for (const id of projectIds) {
+    for (const {key,value} of await listData(env,"product-environments:"+owner+":"+id)) {
+      yield (first ? "" : ",")+JSON.stringify({projectId:id,environment:key,lists:value.lists});
+      first=false;
+    }
+  }
   yield ']}';
 }
 
@@ -219,6 +229,7 @@ async function deleteWorkspaceData(env,owner) {
   }
   for (const {key} of stages) await deleteData(env,"release-staging:"+owner,key);
   for (const id of projectIds) {
+    for (const environment of ["staging","production"]) await deleteData(env,"product-environments:"+owner+":"+id,environment);
     const scope = workspaceFormScope(owner,id);
     for (const {key} of await listData(env,scope)) await deleteData(env,scope,key);
   }
