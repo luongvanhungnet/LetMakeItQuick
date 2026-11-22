@@ -132,3 +132,16 @@ test("scheduled uptime checks reach the configured public host and report a fail
   assert.equal(operations.checks[0].status,503);
   assert.equal(operations.report.alerts[0].code,"release-view-failed");
 });
+
+test("the operator monitor restores synthetic drafts, forms and release pointers and deduplicates runs",async t=>{
+  const db=localData();
+  t.after(()=>db.close());
+  const env={LAUNCHPAD_DATA:db,LAUNCHPAD_MONITOR_KEY:"test-only",LAUNCHPAD_RECOVERY_DRILL:"enabled"};
+  const run=token=>worker.fetch(new Request("https://studio.example/api/uptime/run",{method:"POST",headers:{Authorization:"Bearer "+token}}),env);
+  assert.equal((await run("invalid")).status,403);
+  const {run:receipt}=await (await run("test-only")).json();
+  assert.ok(receipt.recovery.draft && receipt.recovery.forms && receipt.recovery.releasePointer);
+  assert.deepEqual((await (await run("test-only")).json()).run,receipt);
+  const release=await worker.fetch(new Request("https://studio.example/api/releases/view/"+receipt.recovery.slug),env);
+  assert.equal((await release.json()).release.id,receipt.recovery.releaseId);
+});

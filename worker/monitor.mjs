@@ -6,8 +6,9 @@ async function handleMonitor(request,env) {
   if (before?.slot===slot && (before.finished || Date.now()-before.started<90000)) return api({run:before},before.finished?200:202);
   const lease={slot,started:Date.now(),id:crypto.randomUUID()};
   if (!await dataCompareAndSwap(env,scope,"monitor-run",before,lease)) return api({status:"busy"},202);
+  const recovery=await rehearseLaunchRecovery(env);
   await runScheduledOperations(env);
-  const run={...lease,finished:Date.now()};
+  const run={...lease,finished:Date.now(),recovery};
   await dataCompareAndSwap(env,scope,"monitor-run",lease,run);
   return api({run});
 }
