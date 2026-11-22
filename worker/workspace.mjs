@@ -103,6 +103,11 @@ async function workspaceFormSubmit(request,env,slug,formId) {
     if (entries.length >= 50) throw workspaceError("This form has reached its inbox limit.",429);
     return [received,...entries];
   });
+  if (release.metadata.journey==="signup" && typeof recordOperation==="function") {
+    try {
+      await recordOperation(env,owner,"signup",{projectId,releaseId:release.id,mode:workspacePrincipal(request)===owner ? "test":"live",...opsAttribution(request)});
+    } catch { /* A saved form still succeeds when reporting is unavailable. */ }
+  }
   return api({message:"Your response was received."},201);
 }
 

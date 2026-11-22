@@ -437,7 +437,10 @@ function bindWorkspaceForms(frame,context) {
     pending.add(token);
     let message, ok = false;
     try {
-      const response = await workspaceRequest("/forms/"+context.slug+"/"+formId,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({values}),signal:AbortSignal.timeout(15000)});
+      const campaign=new URLSearchParams();
+      const search=new URLSearchParams(location.search);
+      for (const key of ["utm_source","utm_campaign"]) if (search.has(key)) campaign.set(key,search.get(key).slice(0,80));
+      const response = await workspaceRequest("/forms/"+context.slug+"/"+formId+"?"+campaign,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({values}),signal:AbortSignal.timeout(15000)});
       message = response.message;
       ok = true;
     } catch (error) { message = error.message || "The form could not be sent."; }

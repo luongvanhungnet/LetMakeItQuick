@@ -17,3 +17,4 @@ node_modules/
 # Local workspace database
 .launchpad-local.sqlite*
 /dist/.openai/
+/dist/drizzle/

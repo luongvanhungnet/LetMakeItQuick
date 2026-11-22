@@ -352,6 +352,6 @@ async function deliverUptimeEmail(env,check) {
     headers:{Authorization:"Bearer "+env.RESEND_API_KEY,"Content-Type":"application/json","Idempotency-Key":"uptime-"+check.releaseId+"-"+hour},
     body:JSON.stringify({from:env.LAUNCHPAD_ALERT_FROM,to:[env.LAUNCHPAD_ALERT_TO],subject:"Launchpad outage: "+check.slug,
       text:"Release "+check.releaseId+" at "+new URL("/launch/"+check.slug,env.LAUNCHPAD_PUBLIC_ORIGIN).href+
-        " failed its uptime check. HTTP status: "+(check.status || "connection failed")+". Alert window: "+new Date(hour*3600000).toISOString()})});
+         " failed its uptime check. Alert window: "+new Date(hour*3600000).toISOString()})});
   return response.ok ? "accepted" : "failed";
 }

@@ -93,6 +93,7 @@ async function releaseDeploy(env,owner,staged) {
   const snapshot = staged.snapshot;
   const project = releaseProjectFromSnapshot(snapshot);
   const checks = releasePreflight(project,staged.metadata,releaseBundledAsset);
+  checks.push(...(staged.checks || []).filter(check=>["unchecked-origin","remote-http","large-asset","slow-asset","remote-failed","probe-limit"].includes(check.code)));
   const smoke = releaseSmoke(project,staged.metadata,checks);
   if (!smoke.passed) return releaseJSON({error:"Fix the blocking preflight items and stage again.",checks,smoke},422);
 
@@ -208,6 +209,7 @@ async function handleReleases(request,env,shell) {
       catch (error) { return releaseReject(error.message || "Invalid project snapshot.",400); }
       const metadata = releaseMeta(body.metadata);
       const checks = releasePreflight(project,metadata,releaseBundledAsset);
+      checks.push(...await releaseRemoteChecks(env,project,metadata));
       const smoke = releaseSmoke(project,metadata,checks);
       const stage = {
         projectId:body.projectId,id:crypto.randomUUID(),snapshot:body.snapshot,metadata,checks,smoke,
@@ -265,4 +267,28 @@ async function handleReleases(request,env,shell) {
   } catch {
     return releaseReject("Release storage could not complete the request. Try again.",503);
   }
+}
+
+async function releaseRemoteChecks(env,project,metadata) {
+  const urls=new Set([metadata.socialImage,metadata.favicon].filter(releaseHTTPS));
+  for (const page of [project,...(project.pages || [])]) for (const block of page.blocks || []) {
+    if (["button","integration","image","audio","video","downloads"].includes(block.type) && !block.pageTarget && !block.imageData && releaseHTTPS(block.b)) urls.add(block.b);
+  }
+  const allowed=new Set((env.LAUNCHPAD_PREFLIGHT_ORIGINS || "").split(",").map(origin=>origin.trim()).filter(Boolean));
+  const checks=[], probe=async value=>{
+    const url=new URL(value), location=url.hostname;
+    const add=(code,message)=>checks.push({severity:"warn",code,message,location});
+    if (!allowed.has(url.origin)) return add("unchecked-origin","Add this origin to the operator’s preflight allowlist to check availability.");
+    const start=Date.now();
+    try {
+      const response=await fetch(value,{method:"HEAD",redirect:"manual",signal:AbortSignal.timeout(4000)});
+      if (!response.ok) add("remote-http","Resource returned HTTP "+response.status+". Open it and verify the destination.");
+      if (Number(response.headers.get("Content-Length"))>512000) add("large-asset","Resource exceeds 500 KB.");
+      if (Date.now()-start>1500) add("slow-asset","Response headers took more than 1.5 seconds.");
+    } catch { add("remote-failed","The resource could not be reached within four seconds."); }
+  };
+  const limited=[...urls].slice(0,12);
+  for (let i=0;i<limited.length;i+=4) await Promise.all(limited.slice(i,i+4).map(probe));
+  if (urls.size>limited.length) checks.push({severity:"warn",code:"probe-limit",location:"External content",message:"Review additional external resources manually. The first 12 were evaluated."});
+  return checks;
 }

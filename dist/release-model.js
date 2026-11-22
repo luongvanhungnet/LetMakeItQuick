@@ -229,7 +229,7 @@ function releasePreflight(project,metadata,assetInfo) {
       }
     }
   }
-  if (external) add("warn","remote-content","Test external links and media in a browser. The server does not request third-party URLs.","External content");
+  if (external) add("warn","remote-content","Staging checks approved external origins. Review destinations that require sign-in or use redirects.","External content");
   for (const [severity,code,message] of releaseJourneyChecks(project,metadata.journey)) add(severity,code,message,"Customer journey");
   return issues;
 }
