@@ -93,6 +93,7 @@ export default {
   async scheduled(_event,env) { await runScheduledOperations(env); },
   async fetch(request,env) {
     const path = new URL(request.url).pathname;
+    if (path === "/api/uptime/rehearse") return handleRecoveryProbe(request,env);
     if (path === "/api/uptime/run") return handleMonitor(request,env);
     if (env.LAUNCHPAD_STUDIO_OWNER_EMAIL && request.headers.get("oai-authenticated-user-email")?.toLowerCase() !== env.LAUNCHPAD_STUDIO_OWNER_EMAIL.toLowerCase()) {
       const publicRoute=path.startsWith("/launch/") || path.startsWith("/api/releases/view/") ||

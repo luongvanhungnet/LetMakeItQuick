@@ -42,3 +42,36 @@ async function rehearseLaunchRecovery(env) {
   await writeData(env,scope,"verified",result);
   return result;
 }
+
+async function handleRecoveryProbe(request,env) {
+  if (env.LAUNCHPAD_RECOVERY_DRILL!=="enabled" || !env.LAUNCHPAD_MONITOR_KEY ||
+      request.headers.get("Authorization")!=="Bearer "+env.LAUNCHPAD_MONITOR_KEY || request.method!=="POST")
+    return api({error:"Rehearsal unavailable."},403);
+  const baseline=await readData(env,"launchpad-recovery-drill","verified");
+  if (!baseline) return api({error:"Run the hosted recovery check first."},409);
+  const slug=baseline.slug, doc=await readData(env,"release-slugs",slug);
+  const owner="system:launchpad-recovery";
+  if (!doc || doc.owner!==owner) return api({error:"Fixture unavailable."},409);
+  const first=doc.versions.find(v=>v.id===baseline.releaseId);
+  if (!first) return api({error:"Fixture baseline unavailable."},409);
+  const action=new URL(request.url).searchParams.get("action");
+  let desired=first;
+  if (action==="candidate") {
+    const project=workspaceReleaseProject(first.snapshot);
+    project.title="Launchpad signup check";
+    project.blocks=[{id:"bd137274-ab26-48ed-a0d4-5a1cdc7ab956",type:"form",a:"Browser verification",b:"Test code"}];
+    const snapshot=btoa(JSON.stringify(project)).replaceAll("+","-").replaceAll("/","_").replace(/=+$/,"");
+    const candidate={id:"launchpad-recovery-sample-v2",projectId:doc.projectId,snapshot,metadata:{...first.metadata,journey:"signup"}};
+    const response=await releaseDeploy(env,owner,candidate);
+    if (!response.ok) return response;
+    const privateRelease=await releaseDeploy(env,owner,{...candidate,id:"launchpad-recovery-private",metadata:{...first.metadata,slug:"launchpad-private-check",visibility:"private"}});
+    if (!privateRelease.ok) return privateRelease;
+    desired=(await readData(env,"release-slugs",slug)).versions.find(v=>v.stageId===candidate.id);
+  } else if (action!=="restore") return api({error:"Unknown rehearsal phase."},400);
+  const updated=await updateData(env,"release-slugs",slug,current=>{
+    if (current?.owner!==owner || !current.versions.some(v=>v.id===desired.id)) throw Error("Fixture changed");
+    return {...current,live:desired.id,updatedAt:new Date().toISOString()};
+  });
+  await recordPostDeploy(env,updated,slug,desired.id);
+  return api({id:desired.id,version:desired.number});
+}

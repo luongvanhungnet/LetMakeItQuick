@@ -59,7 +59,7 @@ function playWorld3D(root,config,createWorld,stepWorld) {
   const canvas = root.querySelector("canvas");
   const status = root.querySelector("#play-status"), score = root.querySelector("#play-score");
   let gl;
-  try { gl = canvas.getContext("webgl",{alpha:false,antialias:false,depth:true}); } catch {}
+  try { gl = canvas.getContext("webgl",{alpha:false,antialias:false,depth:true,desynchronized:true}); } catch {}
   const idle = () => {};
   if (!gl) { status.textContent = "This game needs WebGL. Enable hardware acceleration or try a WebGL-capable browser."; return idle; }
   function shader(kind,source) {
@@ -269,17 +269,13 @@ function playWorld3D(root,config,createWorld,stepWorld) {
     gl.bufferData(gl.ARRAY_BUFFER,actorVertices.byteLength,gl.DYNAMIC_DRAW);
   }
   function queueFrame() {
-    // Leave margin for a display-refresh deadline without busy-looping on
-    // browsers whose rAF runs faster than the target render cadence.
-    const delay = nextFrameAt-performance.now()-5;
-    if (delay > 1) frameDelay = setTimeout(()=>{ frame = requestAnimationFrame(loop); },delay);
-    else frame = requestAnimationFrame(loop);
+    frameDelay = setTimeout(()=>loop(performance.now()), Math.max(0,nextFrameAt-performance.now()));
   }
   function loop(now) {
     if (!active) return;
     const elapsed = now-(previous ?? now);
     if (nextFrameAt !== undefined && now < nextFrameAt-6) { queueFrame(); return; }
-    nextFrameAt = Math.max((nextFrameAt ?? now)+targetInterval,now+targetInterval-6);
+    nextFrameAt = Math.max((nextFrameAt ?? now)+targetInterval,now+1);
     const dt = Math.min(.1,Math.max(0,elapsed/1000));
     if (previous !== undefined && elapsed <= 250 && viewWidth && viewHeight) {
       measuredTime += elapsed;

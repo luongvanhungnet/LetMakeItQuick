@@ -499,7 +499,7 @@ function recordVideo(canvas,video,renderer,candidates,onProgress,signal,audio) {
     async function draw(time,playing,timestamp = time) {
       renderer.draw(video,time,playing,true);
       if (writer) {
-        const frame = new VideoFrame(canvas,{timestamp:Math.round((first+timestamp*1000)*1000),duration:Math.round(1000000/frameRate)});
+        const frame = new VideoFrame(canvas,{alpha:"discard",timestamp:Math.round((first+timestamp*1000)*1000),duration:Math.round(1000000/frameRate)});
         try { await writer.write(frame); }
         finally { frame.close(); }
       }
@@ -624,6 +624,7 @@ async function exportVideo() {
         const updateProgress = ratio => { progress.value = ratio; };
         blob = format ? await recordVideo(canvas,video,renderer,format,updateProgress,controller.signal,audio)
           : await encodeSilentWebM(canvas,video,renderer,updateProgress,controller.signal);
+        blob = await opaqueCanvasWebM(blob);
         if (controller.signal.aborted) return;
         status.textContent = "Checking recorded video…";
         downloadURL = URL.createObjectURL(blob);

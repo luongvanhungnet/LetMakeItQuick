@@ -178,7 +178,9 @@ async function handleReleases(request,env,shell) {
           const offer = await readData(env,"commerce-offers",stage.projectId);
           if (offer?.owner === owner && offer.active) checkout = {id:offer.id,version:offer.version};
         }
-        return releaseJSON({stage,checkout,productData:await productViewData(env,owner,stage.projectId,owner,"staging",stage.snapshot)});
+        const preview=url.searchParams.get("testVisitor");
+        const visitor=preview==="guest" ? null : preview==="member" ? "test:staging-member" : owner;
+        return releaseJSON({stage,checkout,productData:await productViewData(env,owner,stage.projectId,visitor,"staging",stage.snapshot)});
       }
       if (typeof recordReleaseVisit === "function" && request.method === "GET") {
         try { await recordReleaseVisit(request,env,owner,{id:stage.id,projectId:stage.projectId,slug:stage.metadata.slug},"test"); }

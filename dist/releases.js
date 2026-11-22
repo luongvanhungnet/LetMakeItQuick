@@ -191,7 +191,8 @@ async function mountHostedRelease() {
   target.textContent = "Loading release…";
   let activeVersion;
   try {
-    const result = await apiJSON("/api/releases/"+(staging?"staging/":"view/")+encodeURIComponent(reference));
+    const testVisitor=new URLSearchParams(location.search).get("testVisitor")==="member" ? "member" : "guest";
+    const result = await apiJSON("/api/releases/"+(staging?"staging/":"view/")+encodeURIComponent(reference)+(staging?"?testVisitor="+testVisitor:""));
     activeVersion = staging ? result.stage : result.release;
     const project = readSnapshot("#view="+activeVersion.snapshot);
     const browserCheck=window.parent!==window ? new URLSearchParams(location.search).get("studio_check") : "";
@@ -202,16 +203,22 @@ async function mountHostedRelease() {
         ? '<a class="secondary" href="/?store='+encodeURIComponent(result.checkout.id)+'" target="_blank" rel="noopener">Test Store checkout</a><span class="subtext">Listing v'+esc(result.checkout.version)+'</span>'
         : '<span class="subtext">Save an active test listing in Package &amp; sell to try checkout.</span>'
       : "";
-    target.innerHTML = (staging ? '<header class="release-preview-bar"><strong>Staging preview</strong><button class="secondary" data-release-size="desktop" aria-pressed="true">Desktop</button><button class="secondary" data-release-size="mobile" aria-pressed="false">Mobile</button>'+checkout+'</header>' : "")+
+    target.innerHTML = (staging ? '<header class="release-preview-bar"><strong>Staging preview</strong><label>Test visitor <select data-test-visitor><option value="guest">Signed out</option><option value="member">Signed-in test account</option></select></label><button class="secondary" data-release-size="desktop" aria-pressed="true">Desktop</button><button class="secondary" data-release-size="mobile" aria-pressed="false">Mobile</button>'+checkout+'</header>' : "")+
       '<div class="release-preview-body"></div>';
     const content = target.querySelector(".release-preview-body");
     if (project.type === "video") { const player = mountVideo(content,project.video); stopPublishedGame = ()=>player.dispose(); }
     else if (isGameType(project.type)) stopPublishedGame = mountGame(content,project,true);
     else stopPublishedGame = mountPublishedPages(content,project,{slug,mode:staging || browserCheck?"test":"live",browserCheck,journey:activeVersion.metadata.journey,releaseId:activeVersion.id,productData:result.productData,returnPath:location.pathname+location.search});
     if (staging) {
+      const visitor=target.querySelector("[data-test-visitor]");
+      visitor.value=testVisitor;
+      visitor.onchange=()=>{const url=new URL(location.href);url.searchParams.set("testVisitor",visitor.value);location.assign(url);};
       target.querySelectorAll("[data-release-size]").forEach(button=>button.addEventListener("click",()=>{
         content.classList.toggle("release-mobile",button.dataset.releaseSize === "mobile");
-        target.querySelectorAll("[data-release-size]").forEach(control=>control.setAttribute("aria-pressed",String(control === button)));
+        const visitor=target.querySelector("[data-test-visitor]");
+      visitor.value=testVisitor;
+      visitor.onchange=()=>{const url=new URL(location.href);url.searchParams.set("testVisitor",visitor.value);location.assign(url);};
+      target.querySelectorAll("[data-release-size]").forEach(control=>control.setAttribute("aria-pressed",String(control === button)));
       }));
     } else if (releaseHTTPS(result.supportUrl)) {
       const link = document.createElement("a");

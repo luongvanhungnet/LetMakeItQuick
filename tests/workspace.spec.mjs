@@ -119,3 +119,50 @@ test("product media, searchable records, live form inbox, and reviewed AI undo w
   await expect(page.locator("#workspace-form-inbox")).toContainText("live@example.test");
   await expect(page.locator("#workspace-form-inbox")).not.toContainText("sample@example.test");
 });
+
+test("uploaded free files and separately managed records appear in the corresponding release",async ({page,context})=>{
+  await blankWebsite(page,"Records and files");
+  await page.locator('[data-tool="records"]').click();
+  await page.locator('[data-tool="signin"]').click();
+  await page.locator('[data-tool="downloads"]').click();
+  await page.locator("[data-upload-download]").setInputFiles({name:"guide.txt",mimeType:"text/plain",buffer:Buffer.from("Example guide")});
+  await expect(page.locator("#block-inspector")).toContainText("guide.txt");
+  await page.locator('#view [data-action=workspace]').click();
+  await page.locator("#upload-current").click();
+  await expect(page.locator("#stop-cloud-sync")).toBeVisible();
+  await page.getByRole("button",{name:"Close dialog"}).click();
+  await page.getByRole("button",{name:"Product data",exact:true}).click();
+  const panel=page.locator("#environment-records");
+  for (const environment of ["staging","production"]) {
+    await panel.locator('[name="environment"]').selectOption(environment);
+    await panel.getByRole("button",{name:"Add record"}).click();
+    await panel.getByLabel("Record name").fill(environment+" product");
+    await panel.getByLabel("Details",{exact:true}).fill("Stored in D1");
+    await panel.getByRole("button",{name:"Save records"}).click();
+    await expect(panel.getByRole("status")).toHaveText("Environment records saved.");
+  }
+  await page.getByRole("button",{name:"Close dialog"}).click();
+  await page.getByRole("button",{name:"Hosted releases"}).click();
+  await page.locator('[name="visibility"]').selectOption("public");
+  await page.getByRole("button",{name:"Save to staging",exact:true}).click();
+  await expect(page.getByRole("button",{name:"Publish staged version"})).toBeEnabled({timeout:15000});
+  const preview=await context.newPage();
+  await preview.goto(await page.getByRole("link",{name:"Open staging preview"}).getAttribute("href"));
+  const staged=preview.frameLocator(".published-view");
+  await expect(staged.getByText("staging product",{exact:false})).toBeVisible();
+  await staged.getByRole("link",{name:"Sign in as test customer"}).click();
+  await staged.getByText("Your customer code",{exact:true}).click();
+  await expect(staged.locator("[data-customer-code]")).toBeVisible();
+  await page.getByRole("button",{name:"Publish staged version"}).click();
+  await expect(page.getByRole("link",{name:"Open release",exact:true})).toBeVisible({timeout:15000});
+  const live=await context.newPage();
+  await live.goto(await page.getByRole("link",{name:"Open release",exact:true}).getAttribute("href"));
+  const product=live.frameLocator(".published-view");
+  await expect(product.getByText("production product",{exact:false})).toBeVisible();
+  await expect(product.getByText("staging product",{exact:false})).toHaveCount(0);
+  const file=live.waitForEvent("download");
+  await product.locator("a[download]").click();
+  const download=await file;
+  expect(download.suggestedFilename()).toBe("guide.txt");
+  expect((await readFile(await download.path(),"utf8"))).toBe("Example guide");
+});

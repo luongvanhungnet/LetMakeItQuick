@@ -382,7 +382,15 @@ function runWorkspaceBlocks({mode = "sample",slug = "",returnPath = ""} = {}) {
       note.textContent = "Open the hosted product to sign in.";
       link.replaceWith(note);
     } else {
-      link.href = "/signin-with-chatgpt?return_to="+encodeURIComponent(destination);
+      const back=new URL(destination,"https://return.invalid");
+      if (mode==="test" && back.pathname.startsWith("/staging/")) {
+        back.searchParams.set("testVisitor","member");
+        link.href=back.pathname+back.search;
+        link.textContent="Sign in as test customer";
+        continue;
+      }
+      if (mode==="live") back.searchParams.set("launchpad_signin","1");
+      link.href = "/signin-with-chatgpt?return_to="+encodeURIComponent(back.pathname+back.search);
     }
   }
   const origin = window.location.origin;

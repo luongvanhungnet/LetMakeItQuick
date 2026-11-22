@@ -15,7 +15,7 @@ function verifyRenderedProduct(journey) {
       for (const input of form.querySelectorAll("input")) input.value=input.type==="email" ? "qa@example.invalid" : "Browser check";
       form.requestSubmit();
       if (!form.querySelector("output").textContent.includes("Test response accepted")) issues.push("Test form failed");
-    } else if (!(signin?.getAttribute("href")?.startsWith("/signin-with-chatgpt?return_to=") || document.querySelector("[data-customer-code]"))) issues.push("Sign-in entry missing");
+    } else if (!(/^\/(?:signin-with-chatgpt\?return_to=|staging\/)/.test(signin?.getAttribute("href") || "") || document.querySelector("[data-customer-code]"))) issues.push("Sign-in entry missing");
   } else if (journey==="download") {
     const link=document.querySelector("a[download]");
     if (!link?.getAttribute("href")) issues.push("Download unavailable");

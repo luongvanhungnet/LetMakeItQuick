@@ -118,6 +118,16 @@ async function recordReleaseVisit(request,env,owner,release,mode = "live") {
     const audience = viewer === owner || release.metadata?.visibility === "private" ? "test" : mode;
     await recordOperation(env,owner,"visit",{projectId:release.projectId,releaseId:release.id,mode:audience,...opsAttribution(request)});
     if (audience === "live") await recordCohortVisit(env,owner,release,viewer);
+    if (viewer && viewer!==owner && new URL(request.url).searchParams.get("launchpad_signin")==="1" &&
+        release.metadata?.journey==="signup" && release.snapshot) {
+      const project=workspaceReleaseProject(release.snapshot);
+      if ([project,...(project?.pages || [])].some(page=>page?.blocks?.some(block=>block.type==="signin"))) {
+        const code=await productCustomer(owner,release.projectId,viewer);
+        if (await dataCompareAndSwap(env,"product-signups:"+owner+":"+release.projectId,code,null,{registered:true})) {
+          await recordOperation(env,owner,"signup",{projectId:release.projectId,releaseId:release.id,mode:audience,...opsAttribution(request)});
+        }
+      }
+    }
   } catch {
     // A metrics write should never prevent a product from loading.
   }

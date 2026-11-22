@@ -235,6 +235,8 @@ async function deleteWorkspaceData(env,owner) {
   for (const {key} of stages) await deleteData(env,"release-staging:"+owner,key);
   for (const id of projectIds) {
     for (const environment of ["staging","production"]) await deleteData(env,"product-environments:"+owner+":"+id,environment);
+    const signupScope="product-signups:"+owner+":"+id;
+    for (const {key} of await listData(env,signupScope)) await deleteData(env,signupScope,key);
     const scope = workspaceFormScope(owner,id);
     for (const {key} of await listData(env,scope)) await deleteData(env,scope,key);
   }

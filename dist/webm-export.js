@@ -97,3 +97,39 @@ async function encodeSilentWebM(canvas,video,renderer,onProgress,signal) {
     return muxWebM(frames,width,height,duration);
   } finally { if (encoder.state !== "closed") encoder.close(); }
 }
+
+// Chromium can mark an opaque canvas track as alpha video despite emitting no
+// alpha blocks. Some Matroska demuxers then wait for a second stream forever.
+async function opaqueCanvasWebM(blob) {
+  if (!blob.type.includes("webm")) return blob;
+  const prefix=new Uint8Array(await blob.slice(0,65536).arrayBuffer());
+  function vint(at,isId) {
+    const first=prefix[at];
+    if (!first) return null;
+    let length=1, mask=128;
+    while (!(mask & first)) { length++; mask>>=1; }
+    if (at+length>prefix.length || (isId && length>4)) return null;
+    let value=isId ? first : first & (mask-1);
+    for (let index=1;index<length;index++) value=value*256+prefix[at+index];
+    return {value,length};
+  }
+  let edited=false;
+  function walk(start,end,parents) {
+    for (let at=start;at<end;) {
+      const tag=vint(at,true);
+      if (!tag) return;
+      const size=vint(at+tag.length,false);
+      if (!size) return;
+      const body=at+tag.length+size.length, next=body+size.value;
+      if (tag.value===0x1f43b675) return;
+      if (parents.length && tag.value===parents[0]) walk(body,Math.min(next,end),parents.slice(1));
+      if (!parents.length && tag.value===0x53c0 && size.value===1 && prefix[body]===1) {
+        prefix[body]=0;
+        edited=true;
+      }
+      at=next;
+    }
+  }
+  walk(0,prefix.length,[0x18538067,0x1654ae6b,0xae,0xe0]);
+  return edited ? new Blob([prefix,blob.slice(prefix.length)],{type:blob.type}) : blob;
+}

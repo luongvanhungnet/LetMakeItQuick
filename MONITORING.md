@@ -23,3 +23,9 @@ Download blocks accept one uploaded file up to 64 KiB. Its bytes travel with the
 ## Account deletion
 
 In Cloud workspace, open Cloud data and privacy for export and deletion. Cloud data deletion removes drafts, their history, staging data, managed lists, form responses and operations data. Published release history, checkout records and browser-local drafts are retained. Request deletion of the platform account through the [OpenAI Privacy Portal](https://privacy.openai.com/).
+
+With the operator setting `LAUNCHPAD_RECOVERY_DRILL=enabled`, a monitor run publishes the reserved synthetic sample `launchpad-release-check`, backs up its draft, example form and live pointer in D1, restores them to a separate synthetic namespace and verifies their content. The resulting receipt records the release ID. For an external browser rehearsal, pass the same service credential on stdin to `node scripts/verify-hosted.mjs --rehearse`. Set `NODE_USE_ENV_PROXY=1` on networks that require an environment proxy. This command publishes a second version of the synthetic sample, submits a labeled test form through its stable URL, checks private-resource denial, and restores the baseline. The fixture actions require the monitoring credential, accept only the two predefined phases, and check the dedicated synthetic owner. Protected projects and their histories remain outside the drill.
+
+## Analytics definitions
+
+A visit is a rendered shell request for a release. Prefetches, HEAD requests and uptime probes are excluded. Creator visits and staging visits are counted in test activity. Purchase conversion divides purchases by visits within the same period and mode. A zero denominator displays a dash. Signups count accepted forms on signup journeys and the first identified customer returning through that product’s sign-in link. The stable release ID attributes each event to its published version. CSV rows include the release title, version and slug.

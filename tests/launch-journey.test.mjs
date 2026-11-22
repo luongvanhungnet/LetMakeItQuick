@@ -107,7 +107,7 @@ test("scheduled uptime checks reach the configured public host and report a fail
   const db = localData();
   t.after(()=>db.close());
   const origin = "https://public.example";
-  const env = {LAUNCHPAD_DATA:db,LAUNCHPAD_PUBLIC_ORIGIN:origin};
+  const env = {LAUNCHPAD_DATA:db,LAUNCHPAD_PUBLIC_ORIGIN:origin,RESEND_API_KEY:"test-key",LAUNCHPAD_ALERT_FROM:"alerts@example.test",LAUNCHPAD_ALERT_TO:"ops@example.test"};
   const id = crypto.randomUUID();
   const snapshot = Buffer.from(JSON.stringify({
     type:"web",template:"summit",name:"Public launch",title:"Public launch",intro:"A public demo",
@@ -122,6 +122,14 @@ test("scheduled uptime checks reach the configured public host and report a fail
   }})).json()).stage;
   assert.equal((await call("/api/releases/publish",{projectId:id,stageId:stage.id})).status,201);
   t.mock.method(globalThis,"fetch",async (url,options)=>{
+    if (url==="https://api.resend.com/emails") {
+      assert.equal(options.headers.Authorization,"Bearer test-key");
+      assert.match(options.headers["Idempotency-Key"],/^uptime-/);
+      const message=JSON.parse(options.body);
+      assert.deepEqual(message.to,["ops@example.test"]);
+      assert.match(message.text,/public-launch/);
+      return Response.json({id:"test-receipt"});
+    }
     assert.equal(url.href,origin+"/launch/public-launch");
     assert.equal(options.method,"HEAD");
     assert.equal(options.redirect,"manual");
@@ -130,6 +138,7 @@ test("scheduled uptime checks reach the configured public host and report a fail
   await worker.scheduled({},env);
   const operations = await (await call("/api/operations")).json();
   assert.equal(operations.checks[0].status,503);
+  assert.equal(operations.checks[0].emailDelivery,"accepted");
   assert.equal(operations.report.alerts[0].code,"release-view-failed");
 });
 
@@ -144,4 +153,9 @@ test("the operator monitor restores synthetic drafts, forms and release pointers
   assert.deepEqual((await (await run("test-only")).json()).run,receipt);
   const release=await worker.fetch(new Request("https://studio.example/api/releases/view/"+receipt.recovery.slug),env);
   assert.equal((await release.json()).release.id,receipt.recovery.releaseId);
+  const phase=action=>worker.fetch(new Request("https://studio.example/api/uptime/rehearse?action="+action,{method:"POST",headers:{Authorization:"Bearer test-only"}}),env);
+  const candidate=await (await phase("candidate")).json();
+  assert.equal(candidate.version,2);
+  assert.equal((await worker.fetch(new Request("https://studio.example/launch/launchpad-private-check"),env)).status,404);
+  assert.equal((await (await phase("restore")).json()).id,receipt.recovery.releaseId);
 });

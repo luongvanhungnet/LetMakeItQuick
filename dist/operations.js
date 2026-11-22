@@ -54,18 +54,19 @@ function opsChart(report) {
   return '<div class="ops-charts">'+charts.join("")+'</div><details class="ops-section"><summary>Daily metrics</summary>'+
     opsTable(["Date","Visits","Signups","Purchases","Refunds","Conversion","Net revenue"],daily,"No activity.")+'</details>';
 }
-function opsCsv(data) {
+function opsCsv(data,releases = []) {
   function field(value) {
     let string = String(value ?? "");
     if (typeof value === "string" && /^[=+\-@\t\r]/.test(string)) string = "'"+string;
     return '"'+string.replaceAll('"','""')+'"';
   }
-  const rows = [["group","label","mode","visits","signups","purchases","refunds","failed payments","application errors","conversion","currency","gross minor units","fees minor units","refunded minor units","net minor units"]];
+  const rows = [["group","label","mode","visits","signups","purchases","refunds","failed payments","application errors","conversion","currency","gross minor units","fees minor units","refunded minor units","net minor units","release title","release version","stable slug"]];
   function add(group,label,entry) {
+    const release=group==="release" ? releases.find(item=>item.id===entry.releaseId) : null;
     const money = Object.entries(entry.money || {});
     for (const [currency,amounts] of money.length ? money : [["",{}]]) {
       rows.push([group,label,data.mode,entry.visits,entry.signups,entry.purchases,entry.refunds,entry.failedPayments,entry.applicationErrors,entry.conversion,
-        currency,amounts.gross,amounts.fees,amounts.refunded,amounts.net]);
+        currency,amounts.gross,amounts.fees,amounts.refunded,amounts.net,release?.title,release?.number,release?.slug]);
     }
   }
   data.series.forEach(entry=>add("day",entry.date,entry));
@@ -204,7 +205,7 @@ function openOperations() {
     const {opsAction:action,opsDismiss:dismiss} = button.dataset;
     const slug = board.querySelector("#ops-slug")?.value || "";
     if (dismiss) { void mutate("/api/operations/dismiss",{id:dismiss},"Alert dismissed."); return; }
-    if (action === "csv") opsDownload(opsCsv(data.report),"launchpad-operations-"+data.report.mode+".csv","text/csv;charset=utf-8");
+    if (action === "csv") opsDownload(opsCsv(data.report,data.releases),"launchpad-operations-"+data.report.mode+".csv","text/csv;charset=utf-8");
     if (action === "export") opsDownload(JSON.stringify(data,null,2),"launchpad-operations.json","application/json");
     if (action === "check") void mutate("/api/operations/check",{slug},({check})=>check.ok?"Availability check passed.":check.restricted?"Availability check reached an access restriction.":"Availability check failed. See the result below.");
     if (action === "simulate") void mutate("/api/operations/simulate",{slug},"Test error recorded.",()=>{ filters.mode = "test"; });
