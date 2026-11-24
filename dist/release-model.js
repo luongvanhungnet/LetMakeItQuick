@@ -60,7 +60,7 @@ function releaseProjectFromSnapshot(code) {
         !validString(item.a,700) || !validString(item.b,700) ||
         (item.pageTarget !== undefined && (item.type !== "button" || !validString(item.pageTarget,36))) ||
         ((item.fileData !== undefined || item.fileName !== undefined) && (item.type !== "downloads" || !validString(item.fileName,100) || !item.fileName || /[\/\\\x00-\x1f]/.test(item.fileName) ||
-          !validString(item.fileData,87384) || !item.fileData || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(item.fileData))) ||
+          !validString(item.fileData,87384) || (item.fileData.length===87384 && !item.fileData.endsWith("==")) || !item.fileData || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(item.fileData))) ||
         (item.imageData !== undefined && (item.type !== "image" || !validString(item.imageData,101024))) ||
         [item.credit,item.license].some(value=>value !== undefined && !validString(value,160))) return false;
       seen.add(item.id);

@@ -1,7 +1,8 @@
 "use strict";
 
 // Runs inside the generated, sandboxed product document. Keep this function self-contained.
-function verifyRenderedProduct(journey) {
+async function verifyRenderedProduct(journey) {
+  if (document.readyState!=="complete") await new Promise(resolve=>window.addEventListener("load",resolve,{once:true}));
   const form=document.querySelector("[data-product-form]");
   const signin=document.querySelector("[data-product-signin]");
   const controls=[...document.querySelectorAll("input:not([type=hidden]),button,a[href]")];

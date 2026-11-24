@@ -624,7 +624,7 @@ async function exportVideo() {
         const updateProgress = ratio => { progress.value = ratio; };
         blob = format ? await recordVideo(canvas,video,renderer,format,updateProgress,controller.signal,audio)
           : await encodeSilentWebM(canvas,video,renderer,updateProgress,controller.signal);
-        blob = await opaqueCanvasWebM(blob);
+        blob = blob.type.includes("mp4") ? await normalizeRecordingTimescales(blob) : await opaqueCanvasWebM(blob);
         if (controller.signal.aborted) return;
         status.textContent = "Checking recorded video…";
         downloadURL = URL.createObjectURL(blob);
@@ -656,4 +656,43 @@ async function exportVideo() {
     audio?.close();
     renderer.dispose();
   }
+}
+
+// Chromium MediaRecorder can write a fragmented MP4 track duration in movie
+// ticks even when the track declares a different timescale.
+async function normalizeRecordingTimescales(blob) {
+  if (!blob.type.includes("mp4")) return blob;
+  const bytes=new Uint8Array(await blob.slice(0,262144).arrayBuffer()), view=new DataView(bytes.buffer);
+  function boxes(start,end,type) {
+    const found=[];
+    for (let pos=start;pos+8<=end;) {
+      const size=view.getUint32(pos);
+      if (size<8 || pos+size>end) break;
+      if (String.fromCharCode(...bytes.subarray(pos+4,pos+8))===type) found.push({start:pos+8,end:pos+size});
+      pos+=size;
+    }
+    return found;
+  }
+  const child=(box,type)=>box && boxes(box.start,box.end,type)[0];
+  function timing(box,isTrackHeader=false) {
+    if (!box) return null;
+    const version=bytes[box.start];
+    if (version>1) return null;
+    const scaleAt=box.start+(version?20:12), durationAt=scaleAt+(isTrackHeader?8:4);
+    if (durationAt+(version?8:4)>box.end) return null;
+    return {scale:view.getUint32(scaleAt),duration:version?Number(view.getBigUint64(durationAt)):view.getUint32(durationAt),durationAt,version};
+  }
+  const movie=boxes(0,bytes.length,"moov")[0], header=timing(child(movie,"mvhd"));
+  if (!header?.scale || !child(movie,"mvex")) return blob;
+  let changed=false;
+  for (const track of boxes(movie.start,movie.end,"trak")) {
+    const trackTime=timing(child(track,"tkhd"),true), media=timing(child(child(track,"mdia"),"mdhd"));
+    if (!media?.scale || !trackTime?.duration || media.scale===header.scale || media.duration!==trackTime.duration) continue;
+    const ticks=Math.round(trackTime.duration*media.scale/header.scale);
+    if (!Number.isSafeInteger(ticks) || (!media.version && ticks>0xffffffff)) continue;
+    if (media.version) view.setBigUint64(media.durationAt,BigInt(ticks));
+    else view.setUint32(media.durationAt,ticks);
+    changed=true;
+  }
+  return changed ? new Blob([bytes,blob.slice(bytes.length)],{type:blob.type}) : blob;
 }

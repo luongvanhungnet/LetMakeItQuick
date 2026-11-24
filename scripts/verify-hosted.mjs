@@ -1,5 +1,6 @@
 import {chromium} from "playwright";
 import {createHash} from "node:crypto";
+import {readFile} from "node:fs/promises";
 
 
 // Optional Sites service credential from stdin, exclusively for the platform origin.
@@ -46,7 +47,12 @@ try {
     await product.getByRole("heading",{name:testingCandidate?"Launchpad signup check":"Launchpad release check",exact:true}).waitFor({timeout:15000});
     await product.getByRole("link",{name:"Explore"}).click();
     await product.getByRole("heading",{name:"About this release"}).waitFor();
+    let downloadedBytes;
     if (testingCandidate) {
+      const [file]=await Promise.all([page.waitForEvent("download"),product.getByRole("link",{name:"Download verification file"}).click()]);
+      const bytes=await readFile(await file.path());
+      if (bytes.length!==65536 || !bytes.every(byte=>byte===65)) throw Error("Hosted download did not match the saved content");
+      downloadedBytes=bytes.length;
       await product.getByLabel("Test code").fill("hosted-browser-check");
       await product.getByRole("button",{name:"Send response"}).click();
       await product.getByText("Your response was received.").waitFor();
@@ -61,7 +67,7 @@ try {
     });
     if (![401,403].includes(checks.drafts) || ![401,403,404].includes(checks.staging)) throw Error("Private access check failed");
     if (rehearse && (checks.id!==(testingCandidate?candidate.id:restored.id) || checks.privateRelease!==404)) throw Error("Unexpected fixture version or private visibility.");
-    results.push({signupSubmitted:testingCandidate,device:name,width,elapsedMs:Date.now()-started,...checks});
+    results.push({downloadedBytes,signupSubmitted:testingCandidate,device:name,width,elapsedMs:Date.now()-started,...checks});
     await context.close();
   }
   console.log(JSON.stringify({origin,checkedAt:new Date().toISOString(),platformServiceAccess:!!token,candidate,restored,results},null,2));

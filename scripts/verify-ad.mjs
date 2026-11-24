@@ -7,6 +7,7 @@ if (!/\.(mp4|webm)$/i.test(videoFile || "") || !/\.vtt$/i.test(captionsFile || "
 }
 const media = (await readFile(videoFile)).toString("base64");
 const captions = await readFile(captionsFile,"utf8");
+const expectedDuration=Number(flags.find(flag=>flag.startsWith("--seconds="))?.slice(10));
 const mime = /\.mp4$/i.test(videoFile) ? "video/mp4" : "video/webm";
 for (const [name,engine] of Object.entries({chromium,firefox,webkit})) {
   let browser,page;
@@ -57,6 +58,7 @@ for (const [name,engine] of Object.entries({chromium,firefox,webkit})) {
       return {duration:video.duration,width:video.videoWidth,height:video.videoHeight,error:video.error?.message || null};
     });
     if (metadata.error || !Number.isFinite(metadata.duration) || !metadata.width) throw Error("Invalid video metadata: "+JSON.stringify(metadata));
+    if (expectedDuration>0 && Math.abs(expectedDuration-metadata.duration)>Math.max(.6,expectedDuration*.08)) throw Error("Export duration differs from the timeline: "+metadata.duration);
     await page.locator("button").click();
     await page.waitForFunction(()=>observed.error || (observed.played && observed.caption && (!window.needAudio || observed.peak>.001)));
     await page.waitForFunction(()=>document.querySelector("video").currentTime>.25);

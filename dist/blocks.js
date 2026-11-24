@@ -54,7 +54,7 @@ const maxBlockText = 700;
 
 function usableDownload(block) {
   return block.type === "downloads" && typeof block.fileName === "string" && /^[^/\\\x00-\x1f]{1,100}$/.test(block.fileName) &&
-    typeof block.fileData === "string" && block.fileData.length <= 87384 && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(block.fileData) && !!block.fileData;
+    typeof block.fileData === "string" && block.fileData.length <= 87384 && (block.fileData.length<87384 || block.fileData.endsWith("==")) && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(block.fileData) && !!block.fileData;
 }
 function validBlocks(blocks) {
   if (!Array.isArray(blocks) || blocks.length > maxBlocks) return false;

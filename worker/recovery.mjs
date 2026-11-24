@@ -59,9 +59,11 @@ async function handleRecoveryProbe(request,env) {
   if (action==="candidate") {
     const project=workspaceReleaseProject(first.snapshot);
     project.title="Launchpad signup check";
-    project.blocks=[{id:"bd137274-ab26-48ed-a0d4-5a1cdc7ab956",type:"form",a:"Browser verification",b:"Test code"}];
+    project.blocks=[{id:"bd137274-ab26-48ed-a0d4-5a1cdc7ab956",type:"form",a:"Browser verification",b:"Test code"},
+      {id:"2a46de0f-d9eb-448e-ab17-4f523e2230ad",type:"downloads",a:"Download verification file",b:"",
+        fileName:"sample.txt",fileData:btoa("A".repeat(65536))}];
     const snapshot=btoa(JSON.stringify(project)).replaceAll("+","-").replaceAll("/","_").replace(/=+$/,"");
-    const candidate={id:"launchpad-recovery-sample-v2",projectId:doc.projectId,snapshot,metadata:{...first.metadata,journey:"signup"}};
+    const candidate={id:"launchpad-recovery-sample-download",projectId:doc.projectId,snapshot,metadata:{...first.metadata,journey:"signup"}};
     const response=await releaseDeploy(env,owner,candidate);
     if (!response.ok) return response;
     const privateRelease=await releaseDeploy(env,owner,{...candidate,id:"launchpad-recovery-private",metadata:{...first.metadata,slug:"launchpad-private-check",visibility:"private"}});
