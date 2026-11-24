@@ -200,3 +200,33 @@ test("creator-only studio on a release host and environment-scoped feed executio
   assert.equal(saved.lists[blockId].rows[0].name,"Event");
   assert.doesNotMatch(JSON.stringify(saved),/Bearer|fixture|feed.example/);
 });
+
+test("staging probes approved external origins and reports redirects and slow or large media",async t=>{
+  const {stage}=session(t,{LAUNCHPAD_PREFLIGHT_ORIGINS:"https://cdn.example.test"});
+  const urls=[];
+  t.mock.method(globalThis,"fetch",async (url,options)=>{
+    urls.push(url);
+    assert.equal(options.method,"HEAD");
+    assert.equal(options.redirect,"manual");
+    assert.equal(options.headers,undefined);
+    return new Response(null,{status:302,headers:{Location:"https://unapproved.example.test/private","Content-Length":"720000"}});
+  });
+  const blocks=[{id:crypto.randomUUID(),type:"image",a:"Cover",b:"https://cdn.example.test/cover.jpg"},
+    {id:crypto.randomUUID(),type:"button",a:"Read more",b:"https://unapproved.example.test/notes"}];
+  const staged=await (await stage({...project,blocks})).json();
+  assert.deepEqual(urls,["https://cdn.example.test/cover.jpg"]);
+  for (const code of ["remote-http","large-asset","unchecked-origin"]) assert.ok(staged.stage.checks.some(issue=>issue.code===code));
+});
+
+test("one signed-in return per product is counted across refreshes and preserves campaign attribution",async t=>{
+  const {stage,publish,call}=session(t);
+  const signup={...project,blocks:[{id:crypto.randomUUID(),type:"signin",a:"Sign in",b:"Customer account"}]};
+  const staged=(await (await stage(signup,{...fixtureMeta,journey:"signup"})).json()).stage;
+  await publish(staged.id);
+  const returnURL="/launch/trail-club?launchpad_signin=1&utm_source=mail&utm_campaign=early-access";
+  for (let i=0;i<2;i++) assert.equal((await call(returnURL,{owner:"visitor"})).status,200);
+  const {report}=await (await call("/api/operations")).json();
+  assert.equal(report.current.signups,1);
+  assert.equal(report.current.visits,2);
+  assert.equal(report.campaigns.find(row=>row.campaign==="early-access").signups,1);
+});

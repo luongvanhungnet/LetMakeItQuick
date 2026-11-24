@@ -51,6 +51,7 @@ test("first-use rehearsal edits a template, launches a product and exports its r
     await form.getByRole("button",{name:"Create editable ad"}).click();
     await expect(page.locator(".project-heading h1")).toHaveText("Atlas acceptance launch ad");
     const campaign=new URL(await page.locator("#ad-campaign-link").inputValue());
+    await download(page.getByRole("button",{name:"Download captions (.vtt)"}),"atlas-captions.vtt");
     const ad=await download(page.locator("[data-action=export-video]"));
     const guest=await context.newPage();
     await guest.goto(guestOrigin+campaign.pathname+campaign.search);

@@ -1,0 +1,4 @@
+installability {"installabilityErrors":[]}
+launched true
+offline Welcome
+updated offline Pocket version two

@@ -1,0 +1,69 @@
+{
+  "recovery": {
+    "verifiedAt": "2026-11-22T02:09:49.013Z",
+    "slug": "launchpad-release-check",
+    "releaseId": "65b77ec3-93ab-418a-a902-18d72cd88f65",
+    "draft": true,
+    "forms": true,
+    "releasePointer": true
+  },
+  "events": [
+    {
+      "projectId": "eeb3ed33-d1e6-4983-9cb2-954ee8b08852",
+      "releaseId": "65b77ec3-93ab-418a-a902-18d72cd88f65",
+      "mode": "live",
+      "source": "direct",
+      "campaign": "",
+      "type": "application_error",
+      "code": "release-view-failed",
+      "count": 1,
+      "lastAt": 1795313390022
+    },
+    {
+      "projectId": "eeb3ed33-d1e6-4983-9cb2-954ee8b08852",
+      "releaseId": "65b77ec3-93ab-418a-a902-18d72cd88f65",
+      "mode": "live",
+      "source": "hosted-verification",
+      "campaign": "launch-check",
+      "type": "visit",
+      "code": "",
+      "count": 3,
+      "lastAt": 1795313996347
+    },
+    {
+      "projectId": "eeb3ed33-d1e6-4983-9cb2-954ee8b08852",
+      "releaseId": "550ea672-8235-4f3b-94e2-4004c6073eee",
+      "mode": "live",
+      "source": "hosted-verification",
+      "campaign": "launch-check",
+      "type": "visit",
+      "code": "",
+      "count": 1,
+      "lastAt": 1795313991157
+    },
+    {
+      "projectId": "eeb3ed33-d1e6-4983-9cb2-954ee8b08852",
+      "releaseId": "550ea672-8235-4f3b-94e2-4004c6073eee",
+      "mode": "live",
+      "source": "hosted-verification",
+      "campaign": "launch-check",
+      "type": "signup",
+      "code": "",
+      "count": 1,
+      "lastAt": 1795313993927
+    }
+  ],
+  "checks": [
+    {
+      "slug": "launchpad-release-check",
+      "releaseId": "65b77ec3-93ab-418a-a902-18d72cd88f65",
+      "projectId": "eeb3ed33-d1e6-4983-9cb2-954ee8b08852",
+      "checkedAt": 1795313389495,
+      "status": 401,
+      "ok": false,
+      "restricted": true,
+      "latencyMs": 290,
+      "emailDelivery": "unconfigured"
+    }
+  ]
+}

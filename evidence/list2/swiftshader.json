@@ -1,0 +1,19 @@
+{
+  "renderer": "ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)",
+  "browser": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/148.0.0.0 Safari/537.36",
+  "dpr": 1,
+  "viewport": [
+    1440,
+    1000
+  ],
+  "drawingBuffer": [
+    241,
+    150
+  ],
+  "runtimeMs": 60006,
+  "frames": 3428,
+  "averageFPS": 57.12723976109224,
+  "p95FrameMs": 39.59999999997672,
+  "maximumFrameMs": 99.19999999995343,
+  "stallsOver50ms": 22
+}

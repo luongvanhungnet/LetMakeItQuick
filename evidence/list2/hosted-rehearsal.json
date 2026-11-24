@@ -1,0 +1,37 @@
+{
+  "origin": "https://launchpad-studio.luongvanhungnet.chatgpt.site",
+  "checkedAt": "2026-11-22T02:19:59.395Z",
+  "platformServiceAccess": true,
+  "candidate": {
+    "id": "550ea672-8235-4f3b-94e2-4004c6073eee",
+    "version": 2
+  },
+  "restored": {
+    "id": "65b77ec3-93ab-418a-a902-18d72cd88f65",
+    "version": 1
+  },
+  "results": [
+    {
+      "signupSubmitted": true,
+      "device": "desktop",
+      "width": 1280,
+      "elapsedMs": 4294,
+      "id": "550ea672-8235-4f3b-94e2-4004c6073eee",
+      "version": 2,
+      "drafts": 401,
+      "staging": 401,
+      "privateRelease": 404
+    },
+    {
+      "signupSubmitted": false,
+      "device": "mobile",
+      "width": 390,
+      "elapsedMs": 4013,
+      "id": "65b77ec3-93ab-418a-a902-18d72cd88f65",
+      "version": 1,
+      "drafts": 401,
+      "staging": 401,
+      "privateRelease": 404
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+"group","label","mode","visits","signups","purchases","refunds","failed payments","application errors","conversion","currency","gross minor units","fees minor units","refunded minor units","net minor units","release title","release version","stable slug"
+"day","2026-11-22","live","4","1","0","0","0","0","0","","","","","","","",""
+"campaign","hosted-verification / launch-check","live","4","1","0","0","0","0","0","","","","","","","",""
+"release","65b77ec3-93ab-418a-a902-18d72cd88f65","live","3","0","0","0","0","0","0","","","","","","Launchpad release check","1","launchpad-release-check"
+"release","550ea672-8235-4f3b-94e2-4004c6073eee","live","1","1","0","0","0","0","0","","","","","","Launchpad release check","2","launchpad-release-check"

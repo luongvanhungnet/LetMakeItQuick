@@ -1,0 +1,22 @@
+{
+  "environment": "two loopback origins, SQLite",
+  "firstDeployMs": 7152,
+  "ad": "atlas-acceptance-launch-ad.mp4",
+  "release": "atlas-release.zip",
+  "attribution": [
+    {
+      "source": "social",
+      "campaign": "atlas-acceptance",
+      "visits": 1,
+      "signups": 1,
+      "purchases": 0,
+      "refunds": 0,
+      "failedPayments": 0,
+      "applicationErrors": 0,
+      "money": {},
+      "conversion": 0
+    }
+  ],
+  "restoredLiveVersion": 1,
+  "restoredDraftTitle": "Meet Atlas"
+}
