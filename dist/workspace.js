@@ -374,7 +374,7 @@ async function openWorkspaceData() {
   } catch (error) { inbox.textContent = error.message; }
 }
 
-function runWorkspaceBlocks({mode = "sample",slug = "",returnPath = ""} = {}) {
+function runWorkspaceBlocks({mode = "sample",slug = "",returnPath = "",editorPreview = false} = {}) {
   for (const link of document.querySelectorAll("[data-product-signin]")) {
     const destination = /^\/(?!\/)[^\\]*$/.test(returnPath) ? returnPath : /^[a-z\d-]{1,90}$/.test(slug) ? "/launch/"+slug : "/";
     if (window.parent === window && window.location.protocol === "file:") {
@@ -425,13 +425,41 @@ function runWorkspaceBlocks({mode = "sample",slug = "",returnPath = ""} = {}) {
       form.querySelector("output").textContent = "The form connection timed out. Please try again.";
     },20000);
   });
-  for (const input of document.querySelectorAll("[data-record-search]")) input.addEventListener("input",()=>{
-    const search = input.value.trim().toLocaleLowerCase();
+  const previewLists = new Map();
+  for (const input of document.querySelectorAll("[data-record-search]")) {
     const list = input.closest(".lp-product-records");
-    const items = [...list.querySelectorAll("[data-product-record]")];
-    for (const item of items) item.hidden = !item.textContent.toLocaleLowerCase().includes(search);
-    list.querySelector("output").textContent = items.some(item=>!item.hidden) ? "" : "No matching records.";
-  });
+    const rows = list.querySelector("ul"), output = list.querySelector("output");
+    function filter() {
+      const search = input.value.trim().toLocaleLowerCase();
+      let matches = false;
+      for (const item of rows.children) {
+        item.hidden = !item.textContent.toLocaleLowerCase().includes(search);
+        matches ||= !item.hidden;
+      }
+      output.textContent = matches ? "" : "No matching records.";
+    }
+    input.addEventListener("input",filter);
+    if (editorPreview) previewLists.set(list.dataset.recordBlock,{rows,filter});
+  }
+  if (editorPreview && framed) {
+    window.addEventListener("message",event=>{
+      if (event.source !== window.parent || event.data?.kind !== "launchpad-preview-rows" || !Array.isArray(event.data.rows)) return;
+      for (const row of event.data.rows) {
+        if (!Array.isArray(row)) continue;
+        const [id,value] = row;
+        const list = previewLists.get(id);
+        if (!list || typeof value !== "string") continue;
+        list.rows.replaceChildren(...value.split("\n").filter(Boolean).map(row=>{
+          const item = document.createElement("li");
+          item.dataset.productRecord = "";
+          item.textContent = row.replaceAll("|"," · ");
+          return item;
+        }));
+        list.filter();
+      }
+    });
+    window.parent.postMessage({kind:"launchpad-preview-ready"},"*");
+  }
 }
 function bindWorkspaceForms(frame,context) {
   if (context?.mode !== "live" || !/^[a-z\d-]{1,90}$/.test(context.slug)) return ()=>{};
@@ -459,7 +487,7 @@ function bindWorkspaceForms(frame,context) {
   return ()=>window.removeEventListener("message",receive);
 }
 
-const workspaceProductCSS = '.lp-product-form,.lp-product-records{display:grid;gap:8px;max-width:640px}.lp-product-form label{display:grid;gap:4px}.lp-product-form input,.lp-product-records input{width:100%;font:inherit;border:1px solid #d5cfdd;border-radius:7px;padding:8px}.lp-product-form button{justify-self:start;border:0;cursor:pointer;font:inherit}.lp-product-records ul{display:grid;gap:8px;list-style:none;padding:0}.lp-product-records li{padding:9px;background:#f3f0f8;border-radius:7px}.lp-media-credit{font-size:.875em;color:#5b5364;margin-top:5px}';
+const workspaceProductCSS = '.lp-product-form,.lp-product-records{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;max-width:640px;overflow-wrap:anywhere}.lp-product-form label{display:grid;gap:4px}.lp-product-form input,.lp-product-records input{width:100%;font:inherit;border:1px solid #d5cfdd;border-radius:7px;padding:8px}.lp-product-form button{justify-self:start;border:0;cursor:pointer;font:inherit}.lp-product-records ul{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;list-style:none;padding:0}.lp-product-records li{padding:9px;background:#f3f0f8;border-radius:7px}.lp-media-credit{font-size:.875em;color:#5b5364;margin-top:5px}';
 
 async function manageEnvironmentRows(draft,panel) {
   const lists=projectPages(draft).flatMap(({name,content})=>(content.blocks || []).filter(block=>block.type==="records").map(block=>({id:block.id,title:name+" · "+block.a})));

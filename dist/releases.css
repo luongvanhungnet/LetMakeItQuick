@@ -9,7 +9,7 @@
 .release-preview-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; padding: 8px; border-bottom: 1px solid var(--line); }
 .release-preview-bar .secondary[aria-pressed="true"] { color: white; background: #43227a; }
 .release-preview-body { min-height: 85vh; }
-.release-preview-body.release-mobile { max-width: 420px; margin: auto; border-inline: 1px solid var(--line); }
+.release-preview-body.release-mobile { max-width: 390px; margin: auto; outline: 1px solid var(--line); }
 .release-support { display: block; padding: 10px; text-align: center; }
 @media (max-width: 400px) { .release-fields { grid-template-columns: 1fr; } }
 

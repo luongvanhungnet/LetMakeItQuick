@@ -60,6 +60,18 @@ test("workspace preserves consent, autosaves cloud revisions, restores history, 
   await expect(page.locator("#upload-current")).toBeVisible();
 });
 
+test("editing rows keeps the active search in the live preview",async ({page})=>{
+  await blankWebsite(page,"Search preview");
+  await page.locator('[data-tool="records"]').click();
+  const preview = page.frameLocator("#preview");
+  const search = preview.getByRole("searchbox",{name:"Search records"});
+  await search.fill("sample");
+  await page.locator('[data-property="b"]').fill("Sample record | Updated\nAtlas | Ready");
+  await expect(preview.getByText("Sample record · Updated")).toBeVisible();
+  await expect(search).toHaveValue("sample");
+  await expect(preview.getByText("Atlas · Ready")).toBeHidden();
+});
+
 test("product media, searchable records, live form inbox, and reviewed AI undo work together",async ({page,context}) => {
   await blankWebsite(page,"Workspace showcase");
   const preview = page.frameLocator("#preview");

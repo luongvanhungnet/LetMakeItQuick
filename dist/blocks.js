@@ -119,7 +119,7 @@ function renderBlock(block, assets = {}, pageIds = new Set(), context = {}) {
     case "records": {
       const stored=context?.productData?.records?.[block.id];
       const rows=Array.isArray(stored) ? stored.map(row=>[row.name,row.details].filter(Boolean).join(" · ")) : block.b.split("\n").filter(Boolean).map(row=>row.replaceAll("|"," · "));
-      return '<h2>'+a+'</h2><div class="lp-product-records"><label>Search records <input type="search" data-record-search></label><ul>'+rows.map(row=>
+      return '<h2>'+a+'</h2><div class="lp-product-records"'+(context.editorPreview ? ' data-record-block="'+esc(block.id)+'"' : "")+'><label>Search records <input type="search" data-record-search></label><ul>'+rows.map(row=>
       '<li data-product-record>'+esc(row)+'</li>').join("")+'</ul><output role="status"></output></div>';
     }
     case "downloads": if (usableDownload(block)) return '<a class="lp-button" data-file-download href="data:application/octet-stream;base64,'+esc(block.fileData)+'" download="'+esc(block.fileName)+'">'+a+'</a>';
@@ -167,8 +167,9 @@ function builder() {
 let selectedBlock = null;
 let draggedBlock = null;
 
-function saveEditor(immediate = false) {
+function saveEditor(immediate = false, records) {
   $("#save-note").textContent = save() ? "Saved on this device" : "Draft could not be saved";
+  if (records && updatePreviewRows(records)) return;
   if (immediate) refreshPreview();
   else schedulePreview();
 }
@@ -252,7 +253,7 @@ function handleBuilder() {
       delete block.credit;
       delete block.license;
     }
-    saveEditor(event.target.tagName === "SELECT");
+    saveEditor(event.target.tagName === "SELECT",block.type === "records" && key === "b" ? block : undefined);
     const row = root.querySelector(".build-row.selected .row-title > span:last-child");
     row.querySelector("small")?.remove();
     const title = block.type === "spacer" ? block.a+" px" : block.a.split("\n")[0];

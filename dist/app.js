@@ -96,15 +96,18 @@ let liveVideo = null;
 function editor() {
   disposeEditorPreview();
   const isGame = isGameType(current.type), isVideo = current.type === "video";
-  if (supportsPages(current.type) && editingPage() === current) selectedPage = homePage;
+  const hasPages = supportsPages(current.type);
+  if (hasPages && editingPage() === current) selectedPage = homePage;
   const tabs = (isVideo ? [["blocks","Timeline"],["chat","AI chat"]] : [["blocks",isGame ? "Level editor" : "Build"],["settings",isGame ? "Game settings" : "Page content"],["chat","AI chat"]]).map(([key,label]) =>
     '<button class="filter '+(key === editorMode ? "active" : "")+'" aria-pressed="'+(key === editorMode)+'" data-action="editor-mode" data-id="'+key+'">'+label+'</button>').join("");
-  const tools = '<button class="secondary" data-action="workspace">Cloud workspace</button><button class="secondary" data-action="release-studio">Hosted releases</button><button class="secondary" data-action="team">Team review</button>'+
+  const hosted = '<button class="'+(hasPages ? "primary" : "secondary")+'" data-action="release-studio">Hosted releases</button>';
+  const publishActions = hasPages ? '<button class="secondary" data-action="publish">Share snapshot</button>'+hosted : '<button class="primary" data-action="publish">Publish</button>';
+  const tools = '<button class="secondary" data-action="workspace">Cloud workspace</button>'+(hasPages ? "" : hosted)+'<button class="secondary" data-action="team">Team review</button>'+
     (supportsPages(current.type) ? '<button class="secondary" data-action="workspace-data">Product data</button>' : "")+
     (!isVideo ? '<button class="secondary" data-action="launch-ad">Make a video ad</button>' : "")+
     (commerceCategory(current.type) ? '<button class="secondary" data-action="commerce">Package &amp; sell</button>' : '')+
     (supportsPages(current.type) ? '<button class="secondary" data-action="pwa">Installable web app ZIP</button>' : "");
-  view.innerHTML = '<div class="editor-bar"><div><button class="secondary" data-action="projects">My projects</button><span class="save-note" id="save-note">Saved on this device</span></div><div>'+(isVideo ? '<button class="secondary" data-action="export-video">Export video</button>' : '')+'<button class="secondary" data-action="download">Download HTML</button>'+'<button class="primary" data-action="publish">Publish</button></div></div><div class="project-heading"><h1 class="page-title">'+esc(current.name || "Untitled project")+'</h1><span class="tag">'+typeLabel(current.type)+'</span></div>'+'<nav class="filters editor-tabs" aria-label="Editor views">'+tabs+'</nav><div class="product-tools">'+tools+'</div>'+(supportsPages(current.type) && editorMode !== "chat" ? pageControls(current) : '')+'<div class="editor-workspace"><div id="editor-body"></div>'+livePreviewMarkup(isGame,isVideo)+'</div>';
+  view.innerHTML = '<div class="editor-bar"><div><button class="secondary" data-action="projects">My projects</button><span class="save-note" id="save-note">Saved on this device</span></div><div>'+(isVideo ? '<button class="secondary" data-action="export-video">Export video</button>' : '')+'<button class="secondary" data-action="download">Download HTML</button>'+publishActions+'</div></div><div class="project-heading"><h1 class="page-title">'+esc(current.name || "Untitled project")+'</h1><span class="tag">'+typeLabel(current.type)+'</span></div>'+'<nav class="filters editor-tabs" aria-label="Editor views">'+tabs+'</nav><div class="product-tools">'+tools+'</div>'+(hasPages && editorMode !== "chat" ? pageControls(current) : '')+'<div class="editor-workspace"><div id="editor-body"></div>'+livePreviewMarkup(isGame,isVideo)+'</div>';
   $("#page-select")?.addEventListener("change",event=>{
     selectedPage = event.target.value;
     selectedBlock = null;
@@ -132,6 +135,25 @@ function editor() {
   refreshPreview();
 }
 let previewUpdate;
+const previewRows = new WeakMap();
+window.addEventListener("message",event=>{
+  const frame = $("#preview");
+  const state = previewRows.get(frame);
+  if (!state || event.source !== frame.contentWindow || event.data?.kind !== "launchpad-preview-ready") return;
+  state.ready = true;
+  if (state.pending.size) {
+    frame.contentWindow.postMessage({kind:"launchpad-preview-rows",rows:[...state.pending]},"*");
+    state.pending.clear();
+  }
+});
+function updatePreviewRows(block) {
+  const frame = $("#preview");
+  const state = previewRows.get(frame);
+  if (!state) return false;
+  if (state.ready) frame.contentWindow.postMessage({kind:"launchpad-preview-rows",rows:[[block.id,block.b]]},"*");
+  else state.pending.set(block.id,block.b);
+  return true;
+}
 function livePreviewMarkup(isGame,isVideo) {
   const controls = isVideo ? "" : isGame
     ? '<button class="filter" data-action="focus-game">Playtest</button>'
@@ -154,9 +176,10 @@ function refreshPreview() {
   } else {
     const frame = $("#preview");
     if (!frame) return;
-    const html = projectHTML(current,undefined,undefined,editorMode === "chat" ? homePage : selectedPage);
+    const html = projectHTML(current,undefined,undefined,editorMode === "chat" ? homePage : selectedPage,undefined,{editorPreview:true});
     if (frame.srcdoc === html) return;
     const next = frame.cloneNode(false);
+    previewRows.set(next,{ready:false,pending:new Map()});
     next.srcdoc = html;
     frame.replaceWith(next);
   }
@@ -197,12 +220,13 @@ function projectHTML(p,imageOverride,assets,start = homePage,checklists,context)
       : '<a class="cta" href="#content" data-scroll-content>'+esc(content.button)+'</a>') : "";
     const details = isApp ? '<div data-base-checklist><div class="progress"><strong data-count></strong><button data-reset type="button">Reset</button></div><div class="tasks">'+content.details.split("\n").filter(line=>line.trim()).map(line => '<label><input type="checkbox"><span>'+esc(line)+'</span></label>').join("")+'</div></div>' : '<p class="details">'+esc(content.details)+'</p>';
     const base = content.hideTemplate === true ? "" : '<div class="intro '+(photo?"with-photo":"")+'"><div><h1 tabindex="-1">'+esc(content.title)+'</h1><p>'+esc(content.intro)+'</p>'+mainButton+'</div>'+(photo ? '<img src="'+esc(photo)+'" alt="">' : '')+'</div><section data-page-content'+(id === homePage ? ' id="content"' : "")+'><h2>'+esc(content.section)+'</h2>'+details+'</section>';
-    const blocks = (content.blocks || []).map(block=>'<section class="lp-block">'+renderBlock(block,assets,ids,context)+'</section>').join("");
+    const blocks = (content.blocks || []).map(block=>'<section class="lp-block"'+
+      (context?.browserCheck ? ' data-check-block="'+esc(blockTypes[block.type][0])+'"' : "")+'>'+renderBlock(block,assets,ids,context)+'</section>').join("");
     return '<div tabindex="-1" data-project-page="'+esc(id)+'" style="--accent:'+localColor+'" '+(id === active ? "" : "hidden")+'>'+base+blocks+'</div>';
   }).join("");
   const script = 'const checks=('+projectChecklistStore.toString()+')();('+runPageNavigation.toString()+')();'+
-    (isApp ? '('+runPageChecklists.toString()+')(checks);' : "")+'('+blockInteraction.toString()+')(checks);'+(typeof runWorkspaceBlocks === "function" ? '('+runWorkspaceBlocks.toString()+')('+JSON.stringify({mode:context?.mode || "sample",slug:context?.slug || "",returnPath:context?.returnPath || ""}).replaceAll("<","\\u003c")+');' : '');
-  const checkScript=context?.browserCheck ? "("+verifyRenderedProduct.toString()+")("+JSON.stringify(context.journey)+");" : "";
+    (isApp ? '('+runPageChecklists.toString()+')(checks);' : "")+'('+blockInteraction.toString()+')(checks);'+(typeof runWorkspaceBlocks === "function" ? '('+runWorkspaceBlocks.toString()+')('+JSON.stringify({mode:context?.mode || "sample",slug:context?.slug || "",returnPath:context?.returnPath || "",editorPreview:!!context?.editorPreview}).replaceAll("<","\\u003c")+');' : '');
+  const checkScript=context?.browserCheck ? "("+verifyRenderedProduct.toString()+")("+JSON.stringify(context.journey)+","+JSON.stringify(releaseBrowserWidths)+");" : "";
   const storage = checklists ? ' data-checklist-state="'+esc(JSON.stringify(checklists))+'"' : "";
   const productMode = context?.mode === "live" ? "production" : context?.mode === "test" ? "staging" : "sample";
   const navCSS = 'header nav{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:8px}header nav a{text-decoration:none;font-size:14px}header nav a[aria-current=page]{font-weight:750;text-decoration:underline;text-underline-offset:4px}[data-project-page][hidden]{display:none}.template-credit{padding:18px clamp(18px,5vw,56px);color:#635c70}';
@@ -338,17 +362,26 @@ function mountPublishedPages(target,project,context) {
   }
   if (keys.size) window.addEventListener("message",saveChecks);
   frame.srcdoc = projectHTML(project,undefined,undefined,homePage,keys.size ? values : undefined,context);
+  function forwardBrowserCheck(event) {
+    if (event.source!==frame.contentWindow || event.data?.kind!=="launchpad-render-check") return;
+    const {width,issues} = event.data;
+    parent.postMessage({token:context.browserCheck,id:context.releaseId,width,issues},location.origin);
+    if (width === releaseBrowserWidths[0]) {
+      frame.style.width = releaseBrowserWidths[1]+"px";
+      frame.contentWindow.postMessage({kind:"launchpad-render-check-next"},"*");
+    } else window.removeEventListener("message",forwardBrowserCheck);
+  }
   if (context?.browserCheck) {
-    const receive=event=>{
-      if (event.source!==frame.contentWindow || event.data?.kind!=="launchpad-render-check") return;
-      window.removeEventListener("message",receive);
-      parent.postMessage({token:context.browserCheck,id:context.releaseId,issues:event.data.issues},location.origin);
-    };
-    window.addEventListener("message",receive);
+    frame.style.width = releaseBrowserWidths[0]+"px";
+    window.addEventListener("message",forwardBrowserCheck);
   }
   target.replaceChildren(frame);
   const stopForms = context && typeof bindWorkspaceForms === "function" ? bindWorkspaceForms(frame,context) : null;
-  return () => { window.removeEventListener("message",saveChecks); stopForms?.(); };
+  return () => {
+    window.removeEventListener("message",saveChecks);
+    window.removeEventListener("message",forwardBrowserCheck);
+    stopForms?.();
+  };
 }
 function publish() {
   if (!current.name.trim()) { toast("Enter a project name first."); return; }
@@ -462,19 +495,22 @@ const actions = {
     saveEditor(true);
     renderBlockStage();
   }),
-  help: () => openDialog("Using Launchpad",'<p class="subtext">Choose a template, edit its content, and switch between desktop and mobile previews. Your drafts are saved in this browser. Publish creates a shareable snapshot. Download HTML saves a standalone file.</p>')
+  help: () => openDialog("Using Launchpad",'<p class="subtext">Choose a template, edit its content, and switch between desktop and mobile previews. Your drafts are saved in this browser. Open Hosted releases to stage and publish at a stable URL. Download HTML saves a standalone file.</p>')
 };
 function setup(t) {
   openDialog(t.id === "blank" ? "Start from scratch" : t.name,'<p class="subtext">'+typeLabel(t.type)+(t.desc ? ' · '+esc(t.desc) : '')+'</p><form id="new-project"><label class="field">Project name<input name="name" value="'+esc(t.name)+'" maxlength="70" required></label><div class="dialog-actions"><button class="primary" type="submit">Create project</button></div></form>');
   $("#new-project").addEventListener("submit", (event) => { event.preventDefault(); create(t,new FormData(event.currentTarget).get("name").trim()); });
 }
-document.querySelectorAll("[data-icon]").forEach((element) => { element.innerHTML = icon(element.dataset.icon); });
-document.addEventListener("click", (event) => {
-  const button = event.target.closest("button[data-action]");
-  if (button) actions[button.dataset.action]?.(button.dataset.id);
-});
-window.addEventListener("hashchange",route);
-projects = readDrafts();
-if (typeof initializeWorkspace === "function") void initializeWorkspace();
-if (!releaseLocation() && !new URLSearchParams(location.search).has("store") && !location.hash.startsWith("#view=")) go(page);
-route();
+if (releaseLocation()) void mountHostedRelease();
+else {
+  document.querySelectorAll("[data-icon]").forEach((element) => { element.innerHTML = icon(element.dataset.icon); });
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action]");
+    if (button) actions[button.dataset.action]?.(button.dataset.id);
+  });
+  window.addEventListener("hashchange",route);
+  projects = readDrafts();
+  if (typeof initializeWorkspace === "function") void initializeWorkspace();
+  if (!new URLSearchParams(location.search).has("store") && !location.hash.startsWith("#view=")) go(page);
+  route();
+}

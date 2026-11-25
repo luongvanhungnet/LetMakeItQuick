@@ -65,13 +65,17 @@ function releaseStudio() {
     values.index = form.elements.index.checked;
     return releaseMeta(values);
   }
+  function needsBrowserChecks() {
+    return stage?.browserCheckPending || stage?.smoke.checks.some(check=>check.label.includes("browser journey") && check.status === "failed");
+  }
   function render() {
     const match = stage && stage.snapshot === snapshot && JSON.stringify(stage.metadata) === JSON.stringify(metadata());
     stageArea.innerHTML = stage ? '<h3>Staging</h3><p class="subtext">'+(match
       ? 'Your staged copy matches the draft and release settings.'
       : 'The staged copy differs from the draft or release settings. Stage again before publishing the latest changes.')+'</p><div class="dialog-actions">'+
       '<a class="secondary" href="/staging/'+encodeURIComponent(project.id)+'" target="_blank" rel="noopener">Open staging preview</a>'+
-      '<button class="primary" type="button" data-release-action="publish" '+(!match || !stage.smoke.passed?"disabled":"")+'>Publish staged version</button></div>' : "";
+      (match && needsBrowserChecks() ? '<button class="secondary" type="button" data-release-action="retry-stage-checks">Retry browser checks</button>' : "")+
+      '<button class="primary" type="button" data-release-action="publish" '+(!match || stage.browserCheckPending || !stage.smoke.passed?"disabled":"")+'>Publish staged version</button></div>' : "";
     const live = history?.versions.find(item=>item.id === history.live);
     historyArea.innerHTML = live ? '<h3>Release history</h3><p><strong>Live version '+live.number+'</strong> · '+esc(live.metadata.visibility)+'</p>'+releaseDeploymentList(live.deployment)+'<div class="dialog-actions">'+
       '<a class="secondary" href="/launch/'+esc(history.slug)+'" target="_blank" rel="noopener">Open release</a>'+
@@ -91,9 +95,26 @@ function releaseStudio() {
     return saved.history;
   }
   function showChecks(issues,smoke) { checksArea.innerHTML = '<h3>Preflight</h3>'+releaseCheckList(issues)+releaseSmokeList(smoke); }
+  function showStageResult() {
+    showChecks(stage.checks,stage.smoke);
+    status.textContent = stage.browserCheckPending ? "Staged version saved. Run browser checks before publishing."
+      : stage.smoke.passed ? "Staged version is ready to preview." : "Staged with blockers. Review preflight before publishing.";
+  }
   const localAsset = path => ({exists:assetByPath.has(path) || videoClips.some(clip=>clip.path === path) ||
     path.startsWith("api/workspace/media/")});
   const jsonOptions = body=>({method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  async function checkStagedVersion() {
+    status.textContent = "Checking the staged version in desktop and mobile views…";
+    try {
+      const checks = await checkReleaseInBrowser("/staging/"+project.id,stage.id);
+      const saved = await apiJSON("/api/releases/stage-check",jsonOptions({projectId:project.id,stageId:stage.id,checks}));
+      stage = saved.stage;
+      showStageResult();
+    } catch (error) {
+      if (error.status === 409) throw error;
+      status.textContent = "The staged version was saved. Retry browser checks to continue.";
+    }
+  }
   async function run(message,operation) {
     if (busy) return;
     busy = true;
@@ -115,18 +136,13 @@ function releaseStudio() {
     event.preventDefault();
     const options = metadata();
     void run("Running preflight and saving to staging…",async ()=>{
-      const data = await apiJSON("/api/releases/stage",jsonOptions({projectId:project.id,snapshot,metadata:options}));
+      const data = await apiJSON("/api/releases/stage",jsonOptions({projectId:project.id,snapshot,metadata:options,browserCheck:supportsPages(project.type)}));
       if (!form.isConnected) return;
       stage = data.stage;
       project.releaseSettings = stage.metadata;
       save();
-      if (stage.smoke.passed && supportsPages(project.type) && options.journey!=="checkout") {
-        const checks=await checkReleaseInBrowser("/staging/"+project.id,stage.id);
-        const saved=await apiJSON("/api/releases/stage-check",jsonOptions({projectId:project.id,stageId:stage.id,checks}));
-        stage=saved.stage;
-      }
-      showChecks(stage.checks,stage.smoke);
-      status.textContent = stage.smoke.passed ? "Staged version is ready to preview." : "Staged with blockers. Review preflight before publishing.";
+      showStageResult();
+      if (stage.browserCheckPending) await checkStagedVersion();
     });
   });
   function action(event) {
@@ -140,6 +156,8 @@ function releaseStudio() {
         showChecks(issues,releaseSmoke(parsed,settings,issues));
         status.textContent = issues.some(issue=>issue.severity === "block")?"Preflight found blockers.":"Local preflight passed.";
       } catch (error) { status.textContent = error.message; }
+    } else if (button.dataset.releaseAction === "retry-stage-checks" && needsBrowserChecks()) {
+      void run("Checking the staged version…",checkStagedVersion);
     } else if (button.dataset.releaseAction === "publish" && stage) {
       const expected = stage.id;
       void run("Publishing the staged version…",async ()=>{
@@ -147,15 +165,19 @@ function releaseStudio() {
         project.hostedSlug = result.history.slug;
         save();
         if (!form.isConnected) return;
-        history = await browserChecks(result.history);
+        history = result.history;
         form.elements.slug.readOnly = true;
+        try { history = await browserChecks(history); }
+        catch { status.textContent = "The version is live. The browser check result could not be saved."; return; }
         status.textContent = result.alreadyDeployed ? "This staged version is already in the history." : "Version "+result.version+" is live. Open the release to verify it in your browser.";
       });
     } else if (button.dataset.releaseAction === "rollback" && history) {
       void run("Restoring the selected version…",async ()=>{
         const result = await apiJSON("/api/releases/rollback",jsonOptions({slug:history.slug,versionId:button.dataset.version}));
         if (!form.isConnected) return;
-        history = await browserChecks(result.history);
+        history = result.history;
+        try { history = await browserChecks(history); }
+        catch { status.textContent = "The version was restored. The browser check result could not be saved."; return; }
         status.textContent = "The selected version is now live at the same URL.";
       });
     }
@@ -170,7 +192,7 @@ function releaseStudio() {
     history = result.history;
     stage = result.stage;
     if (stage && !edited) fill(stage.metadata);
-    if (stage) showChecks(stage.checks,stage.smoke);
+    if (stage) showStageResult();
     render();
   }).catch(error=>{ if (form.isConnected) status.textContent = error.message+" Local preflight remains available."; });
 }
@@ -215,10 +237,7 @@ async function mountHostedRelease() {
       visitor.onchange=()=>{const url=new URL(location.href);url.searchParams.set("testVisitor",visitor.value);location.assign(url);};
       target.querySelectorAll("[data-release-size]").forEach(button=>button.addEventListener("click",()=>{
         content.classList.toggle("release-mobile",button.dataset.releaseSize === "mobile");
-        const visitor=target.querySelector("[data-test-visitor]");
-      visitor.value=testVisitor;
-      visitor.onchange=()=>{const url=new URL(location.href);url.searchParams.set("testVisitor",visitor.value);location.assign(url);};
-      target.querySelectorAll("[data-release-size]").forEach(control=>control.setAttribute("aria-pressed",String(control === button)));
+        target.querySelectorAll("[data-release-size]").forEach(control=>control.setAttribute("aria-pressed",String(control === button)));
       }));
     } else if (releaseHTTPS(result.supportUrl)) {
       const link = document.createElement("a");

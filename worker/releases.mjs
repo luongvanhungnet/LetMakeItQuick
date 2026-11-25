@@ -213,8 +213,10 @@ async function handleReleases(request,env,shell) {
       const checks = releasePreflight(project,metadata,releaseBundledAsset);
       checks.push(...await releaseRemoteChecks(env,project,metadata));
       const smoke = releaseSmoke(project,metadata,checks);
+      const browserCheckPending = body.browserCheck === true && ["web","app"].includes(project.type) && metadata.journey !== "checkout" && smoke.passed;
       const stage = {
         projectId:body.projectId,id:crypto.randomUUID(),snapshot:body.snapshot,metadata,checks,smoke,
+        ...(browserCheckPending ? {browserCheckPending} : {}),
         createdAt:new Date().toISOString()
       };
       await writeData(env,"release-staging:"+owner,body.projectId,stage);
@@ -230,7 +232,7 @@ async function handleReleases(request,env,shell) {
         const stage=await loadReleaseStage(env,owner,body.projectId);
         if (!stage || stage.id!==body.stageId) return releaseReject("The staged version changed.",409);
         const previous=stage.smoke.checks.filter(c=>!c.label.includes("browser journey"));
-        const next={...stage,smoke:{...stage.smoke,passed:passed && previous.every(c=>c.status!=="failed"),checks:[...previous,...checks]}};
+        const next={...stage,browserCheckPending:false,smoke:{...stage.smoke,passed:passed && previous.every(c=>c.status!=="failed"),checks:[...previous,...checks]}};
         if (!await dataCompareAndSwap(env,"release-staging:"+owner,body.projectId,stage,next)) return releaseReject("The staged version changed.",409);
         return releaseJSON({stage:next});
       }
@@ -250,7 +252,7 @@ async function handleReleases(request,env,shell) {
       if (typeof teamReleaseBlock === "function" && await teamReleaseBlock(env,owner,body.projectId,stage.id)) {
         return releaseReject("A project reviewer must approve this staged version before publishing.",409);
       }
-      if (!stage.smoke.passed) return releaseReject("Resolve the staging checks before publishing.",422);
+      if (stage.browserCheckPending || !stage.smoke.passed) return releaseReject("Resolve the staging checks before publishing.",422);
       return await releaseDeploy(env,owner,stage);
     }
 

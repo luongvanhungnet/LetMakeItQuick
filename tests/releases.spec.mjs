@@ -24,6 +24,89 @@ async function fillAndSend(frame,text) {
   await frame.getByRole("button",{name:"Send response",exact:true}).click();
 }
 
+test("a mobile app publishes a secondary page with long record details",async ({page,context})=>{
+  await page.goto("/");
+  await page.locator('.sidebar [data-action="new"]').click();
+  await page.locator('dialog [data-id="app"]').click();
+  await page.locator("#new-project [name=name]").fill("Pocket records");
+  await page.getByRole("button",{name:"Create project",exact:true}).click();
+  await page.getByRole("button",{name:"Add page",exact:true}).click();
+  await page.locator("#page-form [name=name]").fill("Records");
+  await page.getByRole("button",{name:"Add page",exact:true}).last().click();
+  await page.locator('[data-action="editor-mode"][data-id="blocks"]').click();
+  await page.locator('[data-tool="records"]').click();
+  const details = "Reference".repeat(28);
+  await page.locator('[data-property="b"]').fill("Atlas | "+details);
+  await openReleases(page);
+  await page.locator('#release-settings [name="visibility"]').selectOption("public");
+  await saveStage(page);
+  await page.getByRole("button",{name:"Publish staged version",exact:true}).click();
+  const release = page.getByRole("link",{name:"Open release",exact:true});
+  await expect(release).toBeVisible();
+  const phone = await context.newPage();
+  await phone.setViewportSize({width:390,height:780});
+  await phone.goto(await release.getAttribute("href"));
+  const product = phone.frameLocator(".published-view");
+  await product.getByRole("link",{name:"Records",exact:true}).click();
+  const record = product.getByText(details,{exact:false});
+  await expect(record).toBeVisible();
+  expect(await record.evaluate(el=>el.ownerDocument.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});
+
+test("release browser checks load the staged and live snapshots once each",async ({page})=>{
+  await newWebsite(page);
+  await openReleases(page);
+  const reads = {staging:0,view:0,workspace:0};
+  page.on("request",request=>{
+    const path = new URL(request.url()).pathname;
+    const match = path.match(/^\/api\/releases\/(staging|view)\//);
+    if (match) reads[match[1]]++;
+    if (path === "/api/workspace") reads.workspace++;
+  });
+
+  await saveStage(page);
+  await expect(page.locator("#release-checks")).toContainText("Desktop browser journey");
+  await expect(page.locator("#release-checks")).toContainText("Mobile browser journey");
+  await page.getByRole("button",{name:"Publish staged version",exact:true}).click();
+  await expect(page.locator("#release-history")).toContainText("Mobile browser journey");
+  expect(reads).toEqual({staging:1,view:1,workspace:0});
+});
+
+test("mobile preflight identifies a failing block on a secondary page",async ({page})=>{
+  await newWebsite(page);
+  await page.getByRole("button",{name:"Add page",exact:true}).click();
+  await page.locator("#page-form [name=name]").fill("Records");
+  await page.locator("#page-form button").click();
+  await page.locator('[data-action="editor-mode"][data-id="blocks"]').click();
+  await page.locator('[data-tool="list"]').click();
+  await page.locator('[data-property="a"]').fill("Reference".repeat(9));
+  await openReleases(page);
+  await page.getByRole("button",{name:"Save to staging",exact:true}).click();
+  await expect(page.locator("#release-checks")).toContainText("Records / Bullet list overflows at 390 px");
+  await expect(page.getByRole("button",{name:"Publish staged version",exact:true})).toBeDisabled();
+});
+
+test("interrupted browser checks can be retried on the same staged version",async ({page,baseURL})=>{
+  await newWebsite(page);
+  await openReleases(page);
+  await page.route("**/api/releases/stage-check",route=>route.abort(),{times:1});
+  const staged = page.waitForResponse(response=>new URL(response.url()).pathname === "/api/releases/stage");
+  await page.getByRole("button",{name:"Save to staging",exact:true}).click();
+  const {stage} = await (await staged).json();
+  const retry = page.getByRole("button",{name:"Retry browser checks",exact:true});
+  await expect(retry).toBeEnabled();
+  const publish = page.getByRole("button",{name:"Publish staged version",exact:true});
+  await expect(publish).toBeDisabled();
+  const rejected = await page.request.post("/api/releases/publish",{
+    headers:{Origin:baseURL},data:{projectId:stage.projectId,stageId:stage.id}
+  });
+  expect(rejected.status()).toBe(422);
+  const retried = page.waitForResponse(response=>new URL(response.url()).pathname === "/api/releases/stage-check");
+  await retry.click();
+  expect((await (await retried).json()).stage.id).toBe(stage.id);
+  await expect(publish).toBeEnabled();
+});
+
 test("stage, test the form, publish a live release and roll back to the previous version",async ({page,context})=>{
   await newWebsite(page);
   await openReleases(page);
