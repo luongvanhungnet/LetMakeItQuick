@@ -6,7 +6,7 @@ import shutil
 
 root = Path(__file__).resolve().parent.parent
 static = root / "dist"
-types = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
+types = {".md": "text/plain; charset=utf-8", ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
          ".js": "text/javascript; charset=utf-8", ".png": "image/png", ".jpg": "image/jpeg", ".mp4": "video/mp4"}
 assets = {}
 for file in sorted(static.rglob("*")):

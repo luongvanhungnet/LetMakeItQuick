@@ -450,6 +450,7 @@ async function download() {
   } catch (error) { toast(error.message); }
 }
 const actions = {
+  dsl: siteDslDialog,
   templates: () => go("templates"), projects: () => go("projects"), close: () => modal.close(),
   "ai-create": () => openAI(),
   workspace: () => openWorkspace(),
